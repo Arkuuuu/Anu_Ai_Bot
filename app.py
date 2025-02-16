@@ -2,6 +2,7 @@ import os
 import streamlit as st
 import boto3  # AWS Polly for TTS
 import requests  # Needed for Groq API requests
+import tempfile
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -94,17 +95,28 @@ def query_chatbot(question):
 # ✅ Process PDF and Store in FAISS
 @st.cache_resource
 def process_pdf(pdf_file):
-    """Extracts text from PDF and stores embeddings in FAISS."""
-    loader = PyPDFLoader(pdf_file)
-    documents = loader.load()
+    """Extracts text from a PDF file and stores embeddings in FAISS."""
+    try:
+        # ✅ Save PDF to a Temporary File
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(pdf_file.read())  # Write uploaded PDF content to temp file
+            temp_pdf_path = temp_file.name  # Get temp file path
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    text_chunks = text_splitter.split_documents(documents)
+        # ✅ Load PDF using PyPDFLoader
+        loader = PyPDFLoader(temp_pdf_path)
+        documents = loader.load()
 
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-    vectorstore = FAISS.from_documents(text_chunks, embeddings)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        text_chunks = text_splitter.split_documents(documents)
 
-    return vectorstore
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+        vectorstore = FAISS.from_documents(text_chunks, embeddings)
+
+        return vectorstore
+
+    except Exception as e:
+        st.error(f"❌ Error processing PDF: {str(e)}")
+        return None
 
 # ✅ Streamlit UI
 def main():
@@ -119,8 +131,9 @@ def main():
         if pdf_file:
             with st.spinner("Processing PDF..."):
                 vectorstore = process_pdf(pdf_file)
-                st.session_state.vectorstore = vectorstore
-                st.success("✅ PDF processed successfully! You can now ask questions.")
+                if vectorstore:
+                    st.session_state.vectorstore = vectorstore
+                    st.success("✅ PDF processed successfully! You can now ask questions.")
 
     # Chat UI
     st.subheader("Chat with Anu AI Bot")
