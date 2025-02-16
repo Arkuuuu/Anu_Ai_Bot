@@ -23,7 +23,7 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
 # ✅ Initialize Pinecone properly
-pinecone.init(api_key=PINECONE_API_KEY, environment="us-east-1-gcp")
+pinecone.init(api_key=PINECONE_API_KEY, environment="us-east-1")
 
 if PINECONE_INDEX_NAME not in pinecone.list_indexes():
     pinecone.create_index(
