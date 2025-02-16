@@ -1,13 +1,15 @@
 streamlit
 pandas
 langchain
+langchain-groq
+langchain-experimental
 faiss-cpu
 PyPDF2
 huggingface-hub
-langchainhub
-python-dotenv
-uuid
 transformers
-langchain-experimental
-langchain-groq
 sentence-transformers
+boto3  # AWS Polly (Text-to-Speech)
+pydub  # Audio Playback
+openai  # Whisper API (Speech-to-Text)
+beautifulsoup4  # Web Scraping
+requests  # For fetching web content
