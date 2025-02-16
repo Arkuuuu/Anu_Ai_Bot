@@ -45,7 +45,7 @@ if os.path.exists(image_path):
 else:
     # Use a fallback online image if the logo is missing
     fallback_url = "https://static.vecteezy.com/system/resources/previews/010/794/341/non_2x/purple-artificial-intelligence-technology-circuit-file-free-png.png"
-    st.sidebar.image(fallback_url, caption="", use_column_width=True)
+    st.sidebar.image(fallback_url, caption="", use_container_width=True)
 
 # File Upload
 file_format = st.sidebar.selectbox("Select File Format", ["CSV", "PDF", "TXT"])
