@@ -1,13 +1,13 @@
 import os
 import streamlit as st
 import boto3  # AWS Polly for TTS
+import requests  # Needed for Groq API requests
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
-import openai  # Whisper API for STT
 from io import BytesIO
 from uuid import uuid4
 
@@ -15,32 +15,42 @@ from uuid import uuid4
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Whisper API
 AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
 AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
-if not GROQ_API_KEY or not OPENAI_API_KEY or not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
+if not GROQ_API_KEY or not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your Streamlit Secrets!")
 
-# ✅ Initialize AWS Polly
+# ✅ Initialize AWS Polly for TTS
 polly_client = boto3.client("polly",
                             aws_access_key_id=AWS_ACCESS_KEY,
                             aws_secret_access_key=AWS_SECRET_KEY,
                             region_name=AWS_REGION)
 
-# ✅ Whisper API Client (for Speech-to-Text)
-openai.api_key = OPENAI_API_KEY
-
-# ✅ Speech-to-Text (STT) Function
+# ✅ Speech-to-Text (STT) Function using Groq Whisper API
 def speech_to_text(audio_file):
-    """Convert spoken audio to text using Whisper API."""
+    """Convert spoken audio to text using Groq Whisper API."""
     try:
-        with open(audio_file, "rb") as file:
-            response = openai.Audio.transcribe("whisper-1", file)
-            return response["text"]
+        url = "https://api.groq.com/v1/audio/transcriptions"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}"
+        }
+        files = {
+            "file": audio_file,
+            "model": (None, "whisper-large-v3")
+        }
+
+        response = requests.post(url, headers=headers, files=files)
+        response_data = response.json()
+
+        if "text" in response_data:
+            return response_data["text"]
+        else:
+            return f"❌ STT Error: {response_data}"
+
     except Exception as e:
-        return f"❌ STT Error: {str(e)}"
+        return f"❌ STT Request Failed: {str(e)}"
 
 # ✅ Text-to-Speech (TTS) Function
 def text_to_speech(text):
@@ -60,25 +70,33 @@ def text_to_speech(text):
     except Exception as e:
         st.error(f"❌ TTS Error: {str(e)}")
 
-# ✅ Main Chatbot Function
+# ✅ AI Chatbot Function using Groq API & LLaMA-3.3-70b-versatile
 def query_chatbot(question):
-    """Retrieve relevant information from FAISS and generate a response."""
-    if "vectorstore" not in st.session_state:
-        return "❌ No knowledge base found. Upload a document first."
+    """Send user query to Groq API and return response."""
+    url = "https://api.groq.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "You are a helpful AI assistant."},
+            {"role": "user", "content": question}
+        ]
+    }
 
-    relevant_docs = st.session_state.vectorstore.similarity_search(question, k=10)
-    retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response_data = response.json()
 
-    client = openai.ChatCompletion.create(
-        model="llama-3.3-70b-specdec",
-        messages=[
-            {"role": "system", "content": "You are an AI assistant."},
-            {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
-        ],
-        stream=False,
-    )
+        if "choices" in response_data and response_data["choices"]:
+            return response_data["choices"][0]["message"]["content"]
+        else:
+            return "❌ No response received from Groq API."
 
-    return client.choices[0].message.content
+    except Exception as e:
+        return f"❌ Groq API Request Failed: {str(e)}"
 
 # ✅ Streamlit UI
 def main():
