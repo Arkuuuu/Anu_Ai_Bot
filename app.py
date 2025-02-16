@@ -155,10 +155,16 @@ def main():
         st.header("⚙️ Configuration")
         st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.get('current_source_name', 'collegedata.pdf')}`")
 
+        if "selected_option" not in st.session_state:
+            st.session_state.selected_option = "Model"
+
+        selected_option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), 
+                                   index=("Model", "College Data", "Upload PDF", "Enter URL").index(st.session_state.selected_option),
+                                   key="selected_option")
+
         with st.form("file_upload"):
-            option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
-            pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if option == "Upload PDF" else None
-            url = st.text_input("Enter website URL:") if option == "Enter URL" else ""
+            pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
+            url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
             submitted = st.form_submit_button("Process")
 
         if submitted:
@@ -167,13 +173,7 @@ def main():
                     temp_path = f"temp_{pdf_file.name}"
                     with open(temp_path, "wb") as f:
                         f.write(pdf_file.getbuffer())
-
-                    if pdf_file.type == "application/pdf":
-                        st.success(store_embeddings(temp_path, pdf_file.name))  # ✅ Pass the file path
-                    else:
-                        text_data = pdf_file.getvalue().decode("utf-8")
-                        st.success(store_embeddings(text_data, pdf_file.name))  # ✅ Pass text content
-
+                    st.success(store_embeddings(temp_path, pdf_file.name))
                 elif url:
                     st.success(store_embeddings(url, url))
 
@@ -191,11 +191,10 @@ def main():
     if prompt := st.chat_input("Ask a question... 🎤"):
         st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
         with st.spinner("🔍 Analyzing..."):
-            response = query_chatbot(prompt, use_model_only=(option == "Model"))
+            response = query_chatbot(prompt, use_model_only=(selected_option == "Model"))
             st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
 
     display_chat_messages()
 
 if __name__ == "__main__":
     main()
-
