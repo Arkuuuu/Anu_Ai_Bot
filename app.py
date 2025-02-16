@@ -9,7 +9,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from io import BytesIO
-from uuid import uuid4
+import time
 
 # ✅ Load environment variables
 load_dotenv()
@@ -52,20 +52,21 @@ def speech_to_text(audio_file):
     except Exception as e:
         return f"❌ STT Request Failed: {str(e)}"
 
-# ✅ Text-to-Speech (TTS) Function
+# ✅ Text-to-Speech (TTS) Function with Auto-Play
 def text_to_speech(text):
-    """Convert text to speech using AWS Polly."""
+    """Convert text to speech using AWS Polly and auto-play the response."""
     try:
         response = polly_client.synthesize_speech(Text=text,
                                                   OutputFormat="mp3",
                                                   VoiceId="Joanna")
         audio_stream = response["AudioStream"].read()
 
-        # Save and play audio
-        audio_file = "response.mp3"
-        with open(audio_file, "wb") as f:
+        # Save and auto-play audio
+        audio_file_path = "response.mp3"
+        with open(audio_file_path, "wb") as f:
             f.write(audio_stream)
-        st.audio(audio_file)
+
+        st.audio(audio_file_path, format="audio/mp3")
 
     except Exception as e:
         st.error(f"❌ TTS Error: {str(e)}")
@@ -98,10 +99,36 @@ def query_chatbot(question):
     except Exception as e:
         return f"❌ Groq API Request Failed: {str(e)}"
 
+# ✅ Process PDF and Store in FAISS
+@st.cache_resource
+def process_pdf(pdf_file):
+    """Extracts text from PDF and stores embeddings in FAISS."""
+    loader = PyPDFLoader(pdf_file)
+    documents = loader.load()
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    text_chunks = text_splitter.split_documents(documents)
+
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+    vectorstore = FAISS.from_documents(text_chunks, embeddings)
+
+    return vectorstore
+
 # ✅ Streamlit UI
 def main():
     st.set_page_config(page_title="Anu AI Bot", page_icon="🤖")
-    st.title("🤖 Anu AI Bot - Now with Voice!")
+    st.title("🤖 Anu AI Bot - Now with PDF Support & Voice!")
+
+    # Sidebar - File Upload
+    with st.sidebar:
+        st.header("📂 Upload a PDF")
+        pdf_file = st.file_uploader("Choose a PDF", type=["pdf"])
+        
+        if pdf_file:
+            with st.spinner("Processing PDF..."):
+                vectorstore = process_pdf(pdf_file)
+                st.session_state.vectorstore = vectorstore
+                st.success("✅ PDF processed successfully! You can now ask questions.")
 
     # Chat UI
     st.subheader("Chat with Anu AI Bot")
@@ -137,8 +164,8 @@ def main():
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(response)
 
-            # ✅ Text-to-Speech Output
-            st.button("🔊 Listen", on_click=text_to_speech, args=(response,))
+            # ✅ Automatically Play TTS Output
+            text_to_speech(response)
 
 if __name__ == "__main__":
     main()
