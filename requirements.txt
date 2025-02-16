@@ -13,3 +13,4 @@ pydub  # Audio Playback
 openai  # Whisper API (Speech-to-Text)
 beautifulsoup4  # Web Scraping
 requests  # For fetching web content
+nltk
