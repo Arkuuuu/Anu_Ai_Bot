@@ -164,7 +164,16 @@ def main():
         if submitted:
             with st.spinner("Processing..."):
                 if pdf_file:
-                    text_data = pdf_file.getvalue().decode("utf-8") if pdf_file.type != "application/pdf" else "\n".join([doc.page_content for doc in load_pdf(pdf_file.name)])
+                    temp_path = f"temp_{pdf_file.name}"
+                    with open(temp_path, "wb") as f:
+                        f.write(pdf_file.getbuffer())
+
+                    if pdf_file.type == "application/pdf":
+                        documents = load_pdf(temp_path)
+                        text_data = "\n".join([doc.page_content for doc in documents])
+                    else:
+                        text_data = pdf_file.getvalue().decode("utf-8")
+
                     st.success(store_embeddings(text_data, pdf_file.name))
                 elif url:
                     st.success(store_embeddings(url, url))
@@ -190,3 +199,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
