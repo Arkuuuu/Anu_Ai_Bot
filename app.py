@@ -1,10 +1,9 @@
 import os
 import streamlit as st
 import boto3  # AWS Polly for TTS
-import requests  # Needed for Groq API requests
+import requests
 import tempfile
 from dotenv import load_dotenv
-from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -157,17 +156,6 @@ def main():
 
     # ✅ Styled Chat Input with Mic Button 🎤
     mic_clicked = False
-    st.markdown(
-        """
-        <style>
-            .stChatInput { display: flex; align-items: center; }
-            .stChatInput button { background: none; border: none; font-size: 20px; cursor: pointer; }
-            .stChatInput input { flex-grow: 1; padding-left: 10px; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     col1, col2 = st.columns([0.1, 0.9])
     with col1:
         mic_clicked = st.button("🎤", key="mic_button")  # Mic emoji button
@@ -188,6 +176,7 @@ def main():
                 f.write(audio_bytes)
 
             prompt = speech_to_text(audio_path)
+            st.success(f"📝 Recognized: {prompt}")
 
     # ✅ Process Query & Generate Response
     if prompt:
