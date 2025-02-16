@@ -70,6 +70,8 @@ def text_to_speech(text):
 # ✅ AI Chatbot Function using Groq API & LLaMA-3.3-70b-versatile
 def query_chatbot(question):
     """Retrieve response from Groq API or PDF Knowledge Base."""
+    context_text = ""
+
     if "vectorstore" in st.session_state and st.session_state.vectorstore:
         retriever = st.session_state.vectorstore.as_retriever()
         relevant_docs = retriever.get_relevant_documents(question)
@@ -77,7 +79,7 @@ def query_chatbot(question):
         retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
 
         if retrieved_text.strip():
-            question = f"Using retrieved context:\n\n{retrieved_text}\n\nQuestion: {question}"
+            context_text = f"Using retrieved context:\n\n{retrieved_text}\n\n"
 
     url = "https://api.groq.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
@@ -85,7 +87,7 @@ def query_chatbot(question):
         "model": "llama-3.3-70b-versatile",
         "messages": [
             {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": question}
+            {"role": "user", "content": context_text + question}
         ]
     }
 
@@ -179,7 +181,6 @@ def main():
         audio_data = mic_recorder()
 
         if audio_data:
-            st.success("✅ Recording complete! Converting speech to text...")
             audio_path = "temp_voice_input.wav"
             audio_bytes = base64.b64decode(audio_data.split(",")[1])
 
