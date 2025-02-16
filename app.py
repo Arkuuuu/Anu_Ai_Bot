@@ -145,7 +145,7 @@ def query_chatbot(question, use_model_only=False):
             {"role": "system", "content": "You are an advanced AI assistant, ready to answer any query."},
             {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
         ],
-        model="llama-3-70b",
+        model="llama-3.3-70b-versatile",
         stream=False,
     )
 
