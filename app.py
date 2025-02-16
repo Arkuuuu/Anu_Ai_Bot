@@ -151,8 +151,7 @@ def display_chat_messages():
             )
 
 def main():
-    
-       st.title("🧠 Anu AI - Your Intelligent Assistant")
+           st.title("🧠 Anu AI - Your Intelligent Assistant")
 
     # Sidebar configuration
     with st.sidebar:
