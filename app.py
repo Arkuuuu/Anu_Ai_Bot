@@ -69,12 +69,16 @@ def history_func(answer, q):
 
 @st.cache_resource
 def load_embeddings():
-    """Loads and caches the Hugging Face Embeddings model."""
-    return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-mpnet-base-v2",
-        model_kwargs={'device': 'cpu'},
-        encode_kwargs={'normalize_embeddings': False}
-    )
+    try:
+        return HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-mpnet-base-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': False}
+        )
+    except ImportError as e:
+        st.error("🚨 Hugging Face Embeddings failed to load. Ensure `sentence-transformers` is installed.")
+        st.error(str(e))
+        return None
 
 @st.cache_resource
 def create_groq_llm():
