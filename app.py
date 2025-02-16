@@ -36,12 +36,16 @@ except KeyError:
 
 st.title("Anu AI bot")
 
-# Sidebar logo
-image_path = "images/logo-new.png"
-st.sidebar.image(image_url, caption="", use_column_width=True, 
-                 on_error=lambda: st.sidebar.image(
-                     "https://static.vecteezy.com/system/resources/previews/010/794/341/non_2x/purple-artificial-intelligence-technology-circuit-file-free-png.png",
-                     caption="", use_column_width=True))
+# Define the path for the logo in the root directory
+image_path = "logo-new.png"
+
+# Check if the image exists in the deployment environment
+if os.path.exists(image_path):
+    st.sidebar.image(image_path, caption="", use_column_width=True)
+else:
+    # Use a fallback online image if the logo is missing
+    fallback_url = "https://static.vecteezy.com/system/resources/previews/010/794/341/non_2x/purple-artificial-intelligence-technology-circuit-file-free-png.png"
+    st.sidebar.image(fallback_url, caption="", use_column_width=True)
 
 # File Upload
 file_format = st.sidebar.selectbox("Select File Format", ["CSV", "PDF", "TXT"])
