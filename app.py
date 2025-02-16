@@ -12,7 +12,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings  # ✅ Alternative for audio recording
+from streamlit_webrtc import webrtc-streamer, WebRtcMode, ClientSettings  # ✅ Alternative for audio recording
 import av  # Required for handling audio streams
 
 # ✅ Streamlit page config
