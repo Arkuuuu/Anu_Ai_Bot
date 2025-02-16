@@ -12,7 +12,7 @@ from langchain.vectorstores import FAISS
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain.chains.question_answering import load_qa_chain
-from langchain.chat_models import ChatGroq
+from langchain_groq import ChatGroq
 from langchain.agents import initialize_agent, AgentType, Tool
 from langchain.embeddings import HuggingFaceEmbeddings
 from io import BytesIO
