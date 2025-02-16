@@ -22,13 +22,16 @@ PINECONE_INDEX_NAME = "chatbot-memory"
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone properly
-pinecone.init(api_key=PINECONE_API_KEY, environment="us-east-1")
+from pinecone import Pinecone, ServerlessSpec
 
-if PINECONE_INDEX_NAME not in pinecone.list_indexes():
-    pinecone.create_index(
+# ✅ New Pinecone initialization
+pc = Pinecone(api_key=PINECONE_API_KEY)
+
+# ✅ Check and create the index correctly
+if PINECONE_INDEX_NAME not in pc.list_indexes():
+    pc.create_index(
         name=PINECONE_INDEX_NAME,
-        dimension=384,
+        dimension=384,  # Adjust according to your embeddings model
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region="us-east-1")
     )
