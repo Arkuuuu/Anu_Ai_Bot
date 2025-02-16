@@ -1,7 +1,7 @@
 import os
+import requests
 import streamlit as st
 import boto3  # AWS Polly for TTS
-import requests
 import tempfile
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
@@ -32,7 +32,7 @@ polly_client = boto3.client("polly",
 def speech_to_text(audio_path):
     """Convert spoken audio to text using Groq Whisper API."""
     try:
-        url = "https://api.groq.com/v1/audio/transcriptions"
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
         files = {"file": open(audio_path, "rb"), "model": (None, "whisper-large-v3")}
 
@@ -80,7 +80,7 @@ def query_chatbot(question):
         if retrieved_text.strip():
             context_text = f"Using retrieved context:\n\n{retrieved_text}\n\n"
 
-    url = "https://api.groq.com/v1/chat/completions"
+    url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     data = {
         "model": "llama-3.3-70b-versatile",
