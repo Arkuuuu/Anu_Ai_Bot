@@ -43,7 +43,7 @@ def speech_to_text(audio_path):
         if "text" in response_data:
             return response_data["text"]
         else:
-            return f"❌ STT Error: {response_data}"
+            return "❌ STT Error: No text received from Whisper API."
 
     except Exception as e:
         return f"❌ STT Request Failed: {str(e)}"
@@ -69,7 +69,16 @@ def text_to_speech(text):
 
 # ✅ AI Chatbot Function using Groq API & LLaMA-3.3-70b-versatile
 def query_chatbot(question):
-    """Send user query to Groq API and return response."""
+    """Retrieve response from Groq API or PDF Knowledge Base."""
+    if "vectorstore" in st.session_state and st.session_state.vectorstore:
+        retriever = st.session_state.vectorstore.as_retriever()
+        relevant_docs = retriever.get_relevant_documents(question)
+
+        retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
+
+        if retrieved_text.strip():
+            question = f"Using retrieved context:\n\n{retrieved_text}\n\nQuestion: {question}"
+
     url = "https://api.groq.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     data = {
@@ -97,12 +106,10 @@ def query_chatbot(question):
 def process_pdf(pdf_file):
     """Extracts text from a PDF file and stores embeddings in FAISS."""
     try:
-        # ✅ Save PDF to a Temporary File
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(pdf_file.read())  # Write uploaded PDF content to temp file
-            temp_pdf_path = temp_file.name  # Get temp file path
+            temp_file.write(pdf_file.read())  # Save uploaded PDF as temp file
+            temp_pdf_path = temp_file.name
 
-        # ✅ Load PDF using PyPDFLoader
         loader = PyPDFLoader(temp_pdf_path)
         documents = loader.load()
 
@@ -146,12 +153,14 @@ def main():
         with st.chat_message(message["role"], avatar=message["avatar"]):
             st.markdown(message["content"])
 
-    # ✅ Voice Input (STT) using Microphone Button 🎤
+    # ✅ Styled Chat Input with Mic Button 🎤
+    mic_clicked = False
     st.markdown(
         """
         <style>
             .stChatInput { display: flex; align-items: center; }
             .stChatInput button { background: none; border: none; font-size: 20px; cursor: pointer; }
+            .stChatInput input { flex-grow: 1; padding-left: 10px; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -159,8 +168,8 @@ def main():
 
     col1, col2 = st.columns([0.1, 0.9])
     with col1:
-        mic_clicked = st.button("🎤")  # Mic emoji button
-    
+        mic_clicked = st.button("🎤", key="mic_button")  # Mic emoji button
+
     with col2:
         prompt = st.text_input("Type your message...")
 
@@ -168,7 +177,7 @@ def main():
     if mic_clicked:
         st.info("🎙️ Recording... Speak now!")
         audio_data = mic_recorder()
-        
+
         if audio_data:
             st.success("✅ Recording complete! Converting speech to text...")
             audio_path = "temp_voice_input.wav"
@@ -192,8 +201,7 @@ def main():
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(response)
 
-            # ✅ Automatically Play TTS Output
-            text_to_speech(response)
+            text_to_speech(response)  # ✅ Auto Play Response
 
 if __name__ == "__main__":
     main()
