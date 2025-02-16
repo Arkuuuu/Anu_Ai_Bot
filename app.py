@@ -12,8 +12,6 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
-from streamlit_webrtc import webrtc-streamer, WebRtcMode, ClientSettings  # ✅ Alternative for audio recording
-import av  # Required for handling audio streams
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -48,29 +46,6 @@ polly_client = boto3.client(
 
 # ---------------------------- Helper Functions ----------------------------
 
-def load_chat_history():
-    """Load chat history from a JSON file."""
-    if os.path.exists(CHAT_HISTORY_FILE):
-        with open(CHAT_HISTORY_FILE, "r") as file:
-            return json.load(file)
-    return []
-
-def save_chat_history(history):
-    """Save chat history to a JSON file."""
-    with open(CHAT_HISTORY_FILE, "w") as file:
-        json.dump(history, file)
-
-# ✅ Load chat history on startup
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = load_chat_history()
-
-@st.cache_resource  # ✅ Cache to prevent reloading Pinecone every time
-def load_vector_store():
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
-
-docsearch = load_vector_store()
-
 def is_valid_url(url):
     """Check if a URL is valid."""
     try:
@@ -85,29 +60,6 @@ def extract_text_from_webpage(url):
     soup = BeautifulSoup(response.text, "html.parser")
     paragraphs = soup.find_all("p")
     return "\n".join([para.get_text() for para in paragraphs]).strip()
-
-def store_embeddings(input_text, source_name):
-    """Process and store embeddings from text data."""
-    if "processed_files" not in st.session_state:
-        st.session_state.processed_files = set()
-
-    if source_name in st.session_state.processed_files:
-        return "✅ This document is already processed. You can now ask queries!"
-
-    text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(input_text)
-
-    if not text_chunks:
-        return "❌ Error: No text found in document."
-
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-    # ✅ Store embeddings in Pinecone
-    PineconeVectorStore.from_texts(text_chunks, embedding=embeddings, index_name=PINECONE_INDEX_NAME)
-
-    st.session_state.processed_files.add(source_name)
-    st.session_state.current_source_name = source_name
-
-    return "✅ Data successfully processed and stored."
 
 def transcribe_audio_groq(audio_bytes):
     """Sends recorded audio to Groq API for transcription using Whisper v3 Large."""
@@ -135,17 +87,10 @@ def synthesize_speech_aws(text):
 
 def query_chatbot(question):
     """Retrieve relevant information from stored embeddings and generate a response."""
-    relevant_docs = docsearch.similarity_search(question, k=10)
-
-    if not relevant_docs:
-        return "❌ No relevant information found."
-
-    retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
-
     chat_completion = client.chat.completions.create(
         messages=[
             {"role": "system", "content": "You are an advanced AI assistant."},
-            {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
+            {"role": "user", "content": question}
         ],
         model="llama-3.3-70b-versatile",
         stream=False,
@@ -162,7 +107,7 @@ def main():
         st.header("⚙️ Configuration")
         st.divider()
 
-        option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
+        option = st.radio("Select knowledge base:", ("Model", "Upload PDF", "Enter URL"), index=0)
 
         if option == "Upload PDF":
             pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
@@ -170,27 +115,71 @@ def main():
                 with st.spinner("Processing PDF..."):
                     text = PyPDFLoader(pdf_file).load()
                     processed_text = "\n".join([doc.page_content for doc in text])
-                    st.success(store_embeddings(processed_text, pdf_file.name))
+                    st.success("✅ PDF uploaded successfully!")
 
         elif option == "Enter URL":
             url = st.text_input("Enter website URL:")
             if st.button("Process URL") and url:
                 with st.spinner("Analyzing website content..."):
                     if is_valid_url(url):
-                        st.success(store_embeddings(extract_text_from_webpage(url), url))
+                        extracted_text = extract_text_from_webpage(url)
+                        st.success("✅ Website processed successfully!")
 
-    # ✅ Voice Input
-    webrtc_ctx = webrtc_streamer(key="speech-to-text", mode=WebRtcMode.SENDRECV)
-    if webrtc_ctx.audio_receiver:
+    # ✅ HTML5 Voice Recorder
+    st.write("🎙 **Record Your Voice and Ask a Question**")
+
+    audio_html = """
+    <script>
+    var my_recorder;
+    var audio_data;
+    
+    function startRecording() {
+        my_recorder = new MediaRecorder(window.stream);
+        my_recorder.start();
+        audio_data = [];
+        my_recorder.ondataavailable = function(event) {
+            audio_data.push(event.data);
+        };
+    }
+
+    function stopRecording() {
+        my_recorder.stop();
+        my_recorder.onstop = function() {
+            var audioBlob = new Blob(audio_data, { type: "audio/wav" });
+            var formData = new FormData();
+            formData.append("file", audioBlob, "recorded_audio.wav");
+            
+            fetch("/upload_audio", { method: "POST", body: formData })
+            .then(response => response.text())
+            .then(data => { 
+                Streamlit.setComponentValue(data);
+            });
+        };
+    }
+
+    navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => { window.stream = stream; })
+    .catch(error => { console.error("Error accessing microphone:", error); });
+    </script>
+
+    <button onclick="startRecording()">🎙 Start Recording</button>
+    <button onclick="stopRecording()">🛑 Stop Recording</button>
+    """
+
+    st.markdown(audio_html, unsafe_allow_html=True)
+
+    if st.session_state.get("audio_data"):
         st.success("🎧 Recording captured! Processing...")
-        audio_bytes = webrtc_ctx.audio_receiver.get_frames(timeout=1.0)[0].to_ndarray().tobytes()
-        transcript = transcribe_audio_groq(audio_bytes)
+        transcript = transcribe_audio_groq(st.session_state.audio_data)
         st.session_state.chat_history.append({"role": "user", "content": transcript, "avatar": "👤"})
 
     if prompt := st.chat_input("Ask a question... 🎤"):
         response = query_chatbot(prompt)
         st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
         st.audio(synthesize_speech_aws(response), format="audio/mp3")
+
+    for message in st.session_state.chat_history:
+        st.markdown(f"**{message['role']}**: {message['content']}")
 
 if __name__ == "__main__":
     main()
