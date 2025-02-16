@@ -10,3 +10,4 @@ uuid
 transformers
 langchain-experimental
 langchain-groq
+sentence-transformers
