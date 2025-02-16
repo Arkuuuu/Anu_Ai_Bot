@@ -1,7 +1,9 @@
 import os
 import requests
+import json
 import streamlit as st
 import nltk
+import boto3
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,7 +13,7 @@ from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
 
-# ✅ Streamlit page config MUST be the first Streamlit command!
+# ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
 # ✅ Load environment variables
@@ -19,186 +21,171 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+AWS_REGION = os.getenv("AWS_REGION")
 PINECONE_INDEX_NAME = "chatbot-memory"
+CHAT_HISTORY_FILE = "/mnt/data/chat_history.json"
 
-if not PINECONE_API_KEY or not GROQ_API_KEY:
+if not PINECONE_API_KEY or not GROQ_API_KEY or not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone client (No index creation!)
+# ✅ Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY)
-
-# ✅ Ensure nltk dependency
-try:
-    nltk.data.find('corpora/averaged_perceptron_tagger')
-except LookupError:
-    nltk.download('averaged_perceptron_tagger')
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
+# ✅ Initialize AWS Polly client
+polly_client = boto3.client(
+    "polly",
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=AWS_REGION
+)
+
 # ---------------------------- Helper Functions ----------------------------
 
-def is_valid_url(url):
-    """Check if the URL is valid and accessible."""
-    try:
-        response = requests.get(url, timeout=10)
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
-        return False
+def transcribe_audio_groq(audio_bytes):
+    """Sends recorded audio to Groq API for transcription using Whisper v3 Large."""
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    response = requests.post(
+        "https://api.groq.com/v1/audio/transcriptions",
+        headers=headers,
+        files={"file": ("audio.wav", audio_bytes, "audio/wav")},
+        data={"model": "whisper-large-v3"}
+    )
 
-def extract_text_from_webpage(url):
-    """Extract text content from a webpage."""
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    paragraphs = soup.find_all("p")
-    return "\n".join([para.get_text() for para in paragraphs]).strip()
-
-def load_pdf(pdf_path):
-    """Load and extract text from a PDF."""
-    return PyPDFLoader(pdf_path).load()
-
-@st.cache_resource  # ✅ Cache to prevent reloading Pinecone every time
-def load_vector_store():
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
-
-docsearch = load_vector_store()
-
-def store_embeddings(input_path, source_name):
-    """Process and store embeddings only if not already stored."""
-    if "processed_files" not in st.session_state:
-        st.session_state.processed_files = set()
-
-    if source_name in st.session_state.processed_files:
-        return "✅ This document is already processed. You can now ask queries!"
-
-    text_data = ""
-    if input_path.startswith("http"):
-        if not is_valid_url(input_path):
-            return "❌ Error: URL is not accessible."
-        text_data = extract_text_from_webpage(input_path)
+    if response.status_code == 200:
+        return response.json().get("text", "⚠️ No transcription available")
     else:
-        documents = load_pdf(input_path)
-        text_data = "\n".join([doc.page_content for doc in documents])
+        return f"⚠️ Error: {response.json()}"
 
-    text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(text_data)
+def synthesize_speech_aws(text):
+    """Convert text to speech using AWS Polly."""
+    response = polly_client.synthesize_speech(
+        Text=text,
+        OutputFormat="mp3",
+        VoiceId="Joanna"  # Change the voice as needed
+    )
+    return response["AudioStream"].read()
 
-    if not text_chunks:
-        return "❌ Error: No text found in document."
-
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-    # ✅ Efficiently store embeddings in Pinecone (Batch Processing)
-    PineconeVectorStore.from_texts(text_chunks, embedding=embeddings, index_name=PINECONE_INDEX_NAME)
-
-    st.session_state.processed_files.add(source_name)
-    st.session_state.current_source_name = source_name
-
-    return "✅ Data successfully processed and stored."
-
-def query_chatbot(question, use_model_only=False):
+def query_chatbot(question):
     """Retrieve relevant information from stored embeddings and generate a response."""
-    retries = 3  
-    for attempt in range(retries):
-        try:
-            if use_model_only:
-                chat_completion = client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": "You are an advanced AI assistant."},
-                        {"role": "user", "content": question}
-                    ],
-                    model="llama-3.3-70b-versatile",
-                    stream=False,
-                )
-                return chat_completion.choices[0].message.content
-
-            # ✅ Use cached docsearch for faster querying
-            relevant_docs = docsearch.similarity_search(question, k=10)
-
-            if not relevant_docs:
-                return "❌ No relevant information found."
-
-            retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
-
-            chat_completion = client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "You are an advanced AI assistant."},
-                    {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
-                ],
-                model="llama-3.3-70b-versatile",
-                stream=False,
-            )
-
-            return chat_completion.choices[0].message.content
-
-        except Exception as e:
-            error_message = str(e)
-            print(f"❌ Groq API Error (Attempt {attempt+1}/{retries}):", error_message)
-            st.error(f"⚠️ API Error: {error_message}")
-
-    return "⚠️ Sorry, I couldn't process your request. Please try again later."
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {"role": "system", "content": "You are an advanced AI assistant."},
+            {"role": "user", "content": question}
+        ],
+        model="llama-3.3-70b-versatile",
+        stream=False,
+    )
+    return chat_completion.choices[0].message.content
 
 # ---------------------------- Streamlit UI ----------------------------
 
-def display_chat_messages():
-    """Display chat messages with styled bubbles."""
-    for message in st.session_state.chat_history:
-        bg_color = "#DCF8C6" if message["role"] == "assistant" else "#E0E0E0"
-        with st.chat_message(message["role"], avatar=message["avatar"]):
-            st.markdown(
-                f"<div style='padding:10px; border-radius:8px; background-color:{bg_color}; margin-bottom:5px;'>{message['content']}</div>",
-                unsafe_allow_html=True
-            )
 def main():
-    st.title("🧠 Anu AI - Your Intelligent Assistant")  # ✅ Fixed indentation
+    st.title("🧠 Anu AI - Your Intelligent Assistant")
 
-    # Sidebar configuration
+    # Sidebar Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         st.divider()
 
-        if "current_source_name" not in st.session_state:
-            st.session_state.current_source_name = "collegedata.pdf"
+        option = st.radio("Select knowledge base:", ("Model", "Upload PDF", "Enter URL"), index=0)
 
-        st.caption(f"Current Knowledge Source: {st.session_state.current_source_name}")
+        if option == "Upload PDF":
+            pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
+            if pdf_file:
+                with st.spinner("Processing PDF..."):
+                    text = PyPDFLoader(pdf_file).load()
+                    processed_text = "\n".join([doc.page_content for doc in text])
+                    st.success("✅ PDF uploaded successfully!")
 
-        with st.form("file_upload"):
-            option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
-            
-            pdf_file = st.file_uploader("Choose PDF file", type=["pdf"]) if option == "Upload PDF" else None
-            url = st.text_input("Enter website URL:") if option == "Enter URL" else ""
+        elif option == "Enter URL":
+            url = st.text_input("Enter website URL:")
+            if st.button("Process URL") and url:
+                with st.spinner("Analyzing website content..."):
+                    extracted_text = extract_text_from_webpage(url)
+                    st.success("✅ Website processed successfully!")
 
-            submitted = st.form_submit_button("Process")
+    # ✅ Mic Button in Input Field (Starts/Stops Recording)
+    st.write(
+        """
+        <script>
+        let recording = false;
+        let mediaRecorder;
+        let audioChunks = [];
 
-        if submitted:
-            with st.spinner("Processing..."):
-                if pdf_file:
-                    temp_path = f"temp_{pdf_file.name}"
-                    with open(temp_path, "wb") as f:
-                        f.write(pdf_file.getbuffer())
-                    st.success(store_embeddings(temp_path, pdf_file.name))
-                elif url:
-                    st.success(store_embeddings(url, url))
+        function toggleRecording() {
+            if (!recording) {
+                startRecording();
+            } else {
+                stopRecording();
+            }
+        }
 
-    # Chat Interface
-    st.subheader("Chat with Anu AI")
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+                    audioChunks = [];
 
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
 
-    if st.sidebar.button("🗑 Clear Chat"):
-        st.session_state.chat_history = []
-        st.success("Chat history cleared!")
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: "audio/wav" });
+                        const formData = new FormData();
+                        formData.append("file", audioBlob, "recorded_audio.wav");
 
-    display_chat_messages()
+                        fetch("/upload_audio", { method: "POST", body: formData })
+                            .then(response => response.text())
+                            .then(data => {
+                                Streamlit.setComponentValue(data);
+                            });
+                    };
 
-    if prompt := st.chat_input("Ask a question... 🎤"):
-        st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
-        with st.spinner("🔍 Analyzing..."):
-            response = query_chatbot(prompt, use_model_only=(option == "Model"))
-            st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
-    
-    display_chat_messages()
+                    recording = true;
+                    document.getElementById("mic-button").innerText = "🎤 Stop Recording";
+                });
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            recording = false;
+            document.getElementById("mic-button").innerText = "🎤 Start Recording";
+        }
+        </script>
+        <button id="mic-button" onclick="toggleRecording()">🎤 Start Recording</button>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # ✅ Check if audio has been recorded
+    if st.session_state.get("audio_data"):
+        st.success("🎧 Recording captured! Processing...")
+        transcript = transcribe_audio_groq(st.session_state.audio_data)
+        st.session_state.chat_history.append({"role": "user", "content": transcript, "avatar": "👤"})
+
+    # ✅ Chat Input with Mic Button
+    col1, col2 = st.columns([9, 1])
+    with col1:
+        prompt = st.text_input("Ask a question...")
+    with col2:
+        st.markdown('<button id="mic-button" onclick="toggleRecording()">🎤</button>', unsafe_allow_html=True)
+
+    if prompt:
+        response = query_chatbot(prompt)
+        st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
+        st.audio(synthesize_speech_aws(response), format="audio/mp3")
+
+    # ✅ Display Chat History
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"], avatar=message["avatar"]):
+            st.markdown(message["content"])
 
 if __name__ == "__main__":
     main()
