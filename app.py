@@ -10,9 +10,9 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
-from pinecone import ServerlessSpec
+from pinecone import Pinecone, ServerlessSpec
 
-# Load environment variables
+# ✅ Load environment variables
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -22,19 +22,18 @@ PINECONE_INDEX_NAME = "chatbot-memory"
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-from pinecone import Pinecone, ServerlessSpec
 # ✅ Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# ✅ Get the list of existing indexes
-existing_indexes = [index_info["name"] for index_info in pc.list_indexes()]
+# ✅ Get existing indexes (Optimized)
+existing_indexes = pc.list_indexes()
 
-# ✅ Only create if it does NOT exist
+# ✅ Create index only if it doesn't exist
 if PINECONE_INDEX_NAME not in existing_indexes:
     print(f"🔹 Creating new Pinecone index: {PINECONE_INDEX_NAME}")
     pc.create_index(
         name=PINECONE_INDEX_NAME,
-        dimension=384,  # ✅ Ensure this matches your embedding model
+        dimension=384,
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region="us-east-1")
     )
@@ -79,17 +78,11 @@ def store_embeddings(input_path, source_name):
     if source_name in st.session_state.processed_files:
         return "✅ This document is already processed. You can now ask queries!"
 
+    text_data = ""
     if input_path.startswith("http"):
         if not is_valid_url(input_path):
             return "❌ Error: URL is not accessible."
-
-        if input_path.endswith(".pdf"):
-            documents = PyPDFLoader(input_path).load()
-            text_data = "\n".join([doc.page_content for doc in documents])
-        else:
-            text_data = extract_text_from_webpage(input_path)
-            if not text_data:
-                return "❌ Error: No readable text found."
+        text_data = extract_text_from_webpage(input_path)
     else:
         documents = load_pdf(input_path)
         text_data = "\n".join([doc.page_content for doc in documents])
@@ -99,14 +92,11 @@ def store_embeddings(input_path, source_name):
     if not text_chunks:
         return "❌ Error: No text found in document."
 
-    # ✅ Initialize embedding model
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-    # ✅ Store embeddings in Pinecone
-    docsearch = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
-    docsearch.add_texts(text_chunks)
+    # ✅ Efficiently store embeddings in Pinecone (Batch Processing)
+    vector_store = PineconeVectorStore.from_texts(text_chunks, embedding=embeddings, index_name=PINECONE_INDEX_NAME)
 
-    # ✅ Mark file as processed
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
 
@@ -114,45 +104,36 @@ def store_embeddings(input_path, source_name):
 
 def query_chatbot(question, use_model_only=False):
     """Retrieve relevant information from stored embeddings and generate a response."""
-    if use_model_only:
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are an advanced AI assistant, ready to answer any query."},
-                {"role": "user", "content": question}
-            ],
-            model="llama-3.3-70b-versatile"  # ✅ Correct model ID
-,
-            stream=False,
-        )
-        return chat_completion.choices[0].message.content
+    retries = 3  # ✅ Retry up to 3 times for API failures
+    for attempt in range(retries):
+        try:
+            if use_model_only:
+                chat_completion = client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "You are an advanced AI assistant."},
+                        {"role": "user", "content": question}
+                    ],
+                    model="llama-3.3-70b-versatile",
+                    stream=False,
+                )
+                return chat_completion.choices[0].message.content
 
-    # Use Pinecone for document retrieval
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-    try:
-        docsearch = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
-    except Exception as e:
-        return f"❌ Error: Could not connect to Pinecone index. {str(e)}"
-
-    relevant_docs = docsearch.similarity_search(question, k=10)
-
-    if not relevant_docs:
-        return "❌ No relevant information found."
-
-    retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
-
-    chat_completion = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": "You are an advanced AI assistant, ready to answer any query."},
-            {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
-        ],
-        model="llama-3.3-70b-versatile",
-        stream=False,
-    )
-
-    return chat_completion.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Groq API Error (Attempt {attempt+1}/{retries}):", str(e))
+            st.error("⚠️ Error: API is not responding. Retrying...")
+    
+    return "⚠️ Error: Unable to process your request. Please try again later."
 
 # ---------------------------- Streamlit UI ----------------------------
+
+def display_chat_messages():
+    """Display chat messages in a styled format."""
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"], avatar=message["avatar"]):
+            st.markdown(
+                f"<div style='padding:10px; border-radius:8px; background-color:#f1f1f1; margin-bottom:5px;'>{message['content']}</div>",
+                unsafe_allow_html=True
+            )
 
 def main():
     st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -168,27 +149,28 @@ def main():
 
         st.caption(f"Current Knowledge Source: {st.session_state.current_source_name}")
 
-        option = st.radio(
-            "Select knowledge base:",
-            ("Model", "College Data", "Upload PDF", "Enter URL"),
-            index=0
-        )
+        # ✅ Use form for better responsiveness
+        with st.form("file_upload"):
+            option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
 
-        if option == "Upload PDF":
-            pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
-            if pdf_file:
-                temp_path = f"temp_{pdf_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(pdf_file.getbuffer())
+            if option == "Upload PDF":
+                pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
 
-                with st.spinner("Processing PDF..."):
+            elif option == "Enter URL":
+                url = st.text_input("Enter website URL:")
+
+            submitted = st.form_submit_button("Process")
+
+        if submitted:
+            with st.spinner("Processing..."):
+                if option == "Upload PDF" and pdf_file:
+                    temp_path = f"temp_{pdf_file.name}"
+                    with open(temp_path, "wb") as f:
+                        f.write(pdf_file.getbuffer())
                     result = store_embeddings(temp_path, pdf_file.name)
                     st.success(result)
 
-        elif option == "Enter URL":
-            url = st.text_input("Enter website URL:")
-            if st.button("Process URL") and url:
-                with st.spinner("Analyzing website content..."):
+                elif option == "Enter URL" and url:
                     result = store_embeddings(url, url)
                     st.success(result)
 
@@ -198,9 +180,7 @@ def main():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    for message in st.session_state.chat_history:
-        with st.chat_message(message["role"], avatar=message["avatar"]):
-            st.markdown(message["content"])
+    display_chat_messages()  # ✅ Use function for structured chat display
 
     if prompt := st.chat_input("Ask a question... 🎤"):
         st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
