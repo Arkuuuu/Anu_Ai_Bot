@@ -153,14 +153,29 @@ def main():
 
     with st.sidebar:
         st.header("⚙️ Configuration")
-        st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.get('current_source_name', 'collegedata.pdf')}`")
 
         if "selected_option" not in st.session_state:
             st.session_state.selected_option = "Model"
+        if "current_source_name" not in st.session_state:
+            st.session_state.current_source_name = "Model (No external knowledge)"
 
-        selected_option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), 
+        # ✅ Radio selection with session tracking
+        selected_option = st.radio("Select knowledge base:", 
+                                   ("Model", "College Data", "Upload PDF", "Enter URL"),
                                    index=("Model", "College Data", "Upload PDF", "Enter URL").index(st.session_state.selected_option),
                                    key="selected_option")
+
+        # ✅ Update knowledge source based on selection
+        if selected_option == "Model":
+            st.session_state.current_source_name = "Model (No external knowledge)"
+        elif selected_option == "College Data":
+            st.session_state.current_source_name = "collegedata.pdf"
+        elif selected_option == "Upload PDF":
+            st.session_state.current_source_name = "Uploaded PDF (Pending Processing)"
+        elif selected_option == "Enter URL":
+            st.session_state.current_source_name = "Website URL (Pending Processing)"
+
+        st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.current_source_name}`")
 
         with st.form("file_upload"):
             pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
@@ -174,8 +189,10 @@ def main():
                     with open(temp_path, "wb") as f:
                         f.write(pdf_file.getbuffer())
                     st.success(store_embeddings(temp_path, pdf_file.name))
+                    st.session_state.current_source_name = pdf_file.name  # ✅ Update source
                 elif url:
                     st.success(store_embeddings(url, url))
+                    st.session_state.current_source_name = url  # ✅ Update source dynamically
 
     st.subheader("Chat with Anu AI")
 
