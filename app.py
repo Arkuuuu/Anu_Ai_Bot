@@ -2,11 +2,6 @@ import os
 import streamlit as st
 import boto3  # AWS Polly for TTS
 import requests  # Needed for Groq API requests
-import tempfile
-import sounddevice as sd
-import numpy as np
-import wave
-from scipy.io.wavfile import write
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -15,6 +10,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from io import BytesIO
 import time
+from streamlit_audio_recorder import st_audio_recorder  # ✅ Web-Based Mic Input
 
 # ✅ Load environment variables
 load_dotenv()
@@ -119,17 +115,6 @@ def process_pdf(pdf_file):
 
     return vectorstore
 
-# ✅ Record Audio Using Microphone
-def record_audio(duration=5, sample_rate=44100):
-    """Records audio from the microphone for a given duration."""
-    st.info("🎙️ Recording... Speak now!")
-    audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=2, dtype=np.int16)
-    sd.wait()
-    temp_audio_path = "temp_voice_input.wav"
-    write(temp_audio_path, sample_rate, audio_data)
-    st.success("✅ Recording complete!")
-    return temp_audio_path
-
 # ✅ Streamlit UI
 def main():
     st.set_page_config(page_title="Anu AI Bot", page_icon="🤖")
@@ -157,12 +142,16 @@ def main():
         with st.chat_message(message["role"], avatar=message["avatar"]):
             st.markdown(message["content"])
 
-    # ✅ Voice Input (STT) using a Microphone Button
-    if st.button("🎤 Record Voice Input"):
-        with st.spinner("Recording voice..."):
-            audio_path = record_audio()
-            with open(audio_path, "rb") as audio_file:
-                transcribed_text = speech_to_text(audio_file)
+    # ✅ Voice Input (STT) using Web-Based Mic Button
+    st.write("🎙️ Click the button below to record your voice:")
+    audio_bytes = st_audio_recorder()
+    
+    if audio_bytes and st.button("Convert Speech to Text"):
+        with st.spinner("Converting speech to text..."):
+            with open("temp_voice_input.wav", "wb") as f:
+                f.write(audio_bytes)
+            
+            transcribed_text = speech_to_text("temp_voice_input.wav")
 
         st.text_area("Transcribed Text:", value=transcribed_text, height=100)
         prompt = transcribed_text
