@@ -169,12 +169,11 @@ def main():
                         f.write(pdf_file.getbuffer())
 
                     if pdf_file.type == "application/pdf":
-                        documents = load_pdf(temp_path)
-                        text_data = "\n".join([doc.page_content for doc in documents])
+                        st.success(store_embeddings(temp_path, pdf_file.name))  # ✅ Pass the file path
                     else:
                         text_data = pdf_file.getvalue().decode("utf-8")
+                        st.success(store_embeddings(text_data, pdf_file.name))  # ✅ Pass text content
 
-                    st.success(store_embeddings(text_data, pdf_file.name))
                 elif url:
                     st.success(store_embeddings(url, url))
 
