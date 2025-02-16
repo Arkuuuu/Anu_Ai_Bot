@@ -10,7 +10,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from io import BytesIO
 import time
-from streamlit_audio_recorder import st_audio_recorder  # ✅ Web-Based Mic Input
+from streamlit_mic_recorder import mic_recorder  # ✅ New Microphone Recorder
 
 # ✅ Load environment variables
 load_dotenv()
@@ -143,13 +143,13 @@ def main():
             st.markdown(message["content"])
 
     # ✅ Voice Input (STT) using Web-Based Mic Button
-    st.write("🎙️ Click the button below to record your voice:")
-    audio_bytes = st_audio_recorder()
-    
-    if audio_bytes and st.button("Convert Speech to Text"):
+    st.write("🎙️ Click below to record your voice:")
+    audio_data = mic_recorder()
+
+    if audio_data and st.button("Convert Speech to Text"):
         with st.spinner("Converting speech to text..."):
             with open("temp_voice_input.wav", "wb") as f:
-                f.write(audio_bytes)
+                f.write(audio_data)
             
             transcribed_text = speech_to_text("temp_voice_input.wav")
 
