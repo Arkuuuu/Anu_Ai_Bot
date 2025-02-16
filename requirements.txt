@@ -10,3 +10,4 @@ boto3  # AWS Polly (Text-to-Speech)
 requests  # For Groq API (AI Responses + Whisper STT)
 streamlit-mic-recorder  # ✅ Web-Based Microphone Recorder
 beautifulsoup4  # Web Scraping (if needed)
+pyPDF
