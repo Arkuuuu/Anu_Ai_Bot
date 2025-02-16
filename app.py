@@ -11,11 +11,9 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
-import sounddevice as sd
-import numpy as np
-import wave
+from streamlit_audio_recorder import st_audio_recorder  # ✅ Streamlit-compatible audio recorder
 
-# ✅ Streamlit page config (Must be first Streamlit command!)
+# ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
 # ✅ Load environment variables
@@ -53,29 +51,58 @@ def save_chat_history(history):
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = load_chat_history()
 
-def record_audio(filename="voice_input.wav", duration=5, samplerate=44100):
-    """Records audio from the microphone and saves it as a WAV file."""
-    st.info("🎤 Listening... Speak now!")
-    audio_data = sd.rec(int(samplerate * duration), samplerate=samplerate, channels=1, dtype=np.int16)
-    sd.wait()  # Wait until recording is finished
-    wave_file = wave.open(filename, "wb")
-    wave_file.setnchannels(1)
-    wave_file.setsampwidth(2)
-    wave_file.setframerate(samplerate)
-    wave_file.writeframes(audio_data.tobytes())
-    wave_file.close()
-    return filename
+@st.cache_resource  # ✅ Cache to prevent reloading Pinecone every time
+def load_vector_store():
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
 
-def transcribe_audio_groq(audio_file):
-    """Sends audio to Groq API for transcription using Whisper v3 Large."""
-    with open(audio_file, "rb") as f:
-        audio_data = f.read()
+docsearch = load_vector_store()
 
+def is_valid_url(url):
+    """Check if a URL is valid."""
+    try:
+        response = requests.get(url, timeout=10)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
+
+def extract_text_from_webpage(url):
+    """Extract text content from a webpage."""
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    paragraphs = soup.find_all("p")
+    return "\n".join([para.get_text() for para in paragraphs]).strip()
+
+def store_embeddings(input_text, source_name):
+    """Process and store embeddings from text data."""
+    if "processed_files" not in st.session_state:
+        st.session_state.processed_files = set()
+
+    if source_name in st.session_state.processed_files:
+        return "✅ This document is already processed. You can now ask queries!"
+
+    text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(input_text)
+
+    if not text_chunks:
+        return "❌ Error: No text found in document."
+
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+    # ✅ Store embeddings in Pinecone
+    PineconeVectorStore.from_texts(text_chunks, embedding=embeddings, index_name=PINECONE_INDEX_NAME)
+
+    st.session_state.processed_files.add(source_name)
+    st.session_state.current_source_name = source_name
+
+    return "✅ Data successfully processed and stored."
+
+def transcribe_audio_groq(audio_bytes):
+    """Sends recorded audio to Groq API for transcription using Whisper v3 Large."""
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
     response = requests.post(
         "https://api.groq.com/v1/audio/transcriptions",
         headers=headers,
-        files={"file": ("audio.wav", audio_data, "audio/wav")},
+        files={"file": ("audio.wav", audio_bytes, "audio/wav")},
         data={"model": "whisper-large-v3"}
     )
 
@@ -83,6 +110,37 @@ def transcribe_audio_groq(audio_file):
         return response.json().get("text", "⚠️ No transcription available")
     else:
         return f"⚠️ Error: {response.json()}"
+
+def query_chatbot(question, use_model_only=False):
+    """Retrieve relevant information from stored embeddings and generate a response."""
+    if use_model_only:
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are an advanced AI assistant."},
+                {"role": "user", "content": question}
+            ],
+            model="llama-3.3-70b-versatile",
+            stream=False,
+        )
+        return chat_completion.choices[0].message.content
+
+    relevant_docs = docsearch.similarity_search(question, k=10)
+
+    if not relevant_docs:
+        return "❌ No relevant information found."
+
+    retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
+
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {"role": "system", "content": "You are an advanced AI assistant."},
+            {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
+        ],
+        model="llama-3.3-70b-versatile",
+        stream=False,
+    )
+
+    return chat_completion.choices[0].message.content
 
 # ---------------------------- Streamlit UI ----------------------------
 
@@ -99,40 +157,49 @@ def display_chat_messages():
 def main():
     st.title("🧠 Anu AI - Your Intelligent Assistant")
 
-    # Sidebar Configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         st.divider()
 
-        st.caption(f"Chat History is saved at: `{CHAT_HISTORY_FILE}`")
+        if "current_source_name" not in st.session_state:
+            st.session_state.current_source_name = "collegedata.pdf"
 
-        if st.sidebar.button("🗑 Clear Chat"):
-            st.session_state.chat_history = []
-            save_chat_history([])  # Clear JSON file too
-            st.success("Chat history cleared!")
+        st.caption(f"Current Knowledge Source: {st.session_state.current_source_name}")
 
-    st.subheader("Chat with Anu AI")
+        option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
 
-    # ✅ Display existing chat history
+        if option == "Upload PDF":
+            pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
+            if pdf_file:
+                temp_path = f"temp_{pdf_file.name}"
+                with open(temp_path, "wb") as f:
+                    f.write(pdf_file.getbuffer())
+
+                with st.spinner("Processing PDF..."):
+                    result = store_embeddings(open(temp_path, "r", encoding="utf-8").read(), pdf_file.name)
+                    st.success(result)
+
+        elif option == "Enter URL":
+            url = st.text_input("Enter website URL:")
+            if st.button("Process URL") and url:
+                with st.spinner("Analyzing website content..."):
+                    if is_valid_url(url):
+                        result = store_embeddings(extract_text_from_webpage(url), url)
+                        st.success(result)
+
     display_chat_messages()
 
-    # ✅ Voice Input Button
-    if st.button("🎙 Speak to Anu AI"):
-        audio_file = record_audio()
-        transcript = transcribe_audio_groq(audio_file)
-        
-        if transcript:
-            st.session_state.chat_history.append({"role": "user", "content": transcript, "avatar": "👤"})
-            response = query_chatbot(transcript, use_model_only=False)
-            st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
-            save_chat_history(st.session_state.chat_history)
+    # ✅ Voice Input
+    audio_data = st_audio_recorder(start_prompt="🎙 Click to record", stop_prompt="🛑 Stop", format="wav")
+    if audio_data:
+        st.success("🎧 Recording captured! Processing...")
+        transcript = transcribe_audio_groq(audio_data)
+        st.session_state.chat_history.append({"role": "user", "content": transcript, "avatar": "👤"})
 
-    # ✅ Text Input for Chat
     if prompt := st.chat_input("Ask a question... 🎤"):
         st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
-        response = query_chatbot(prompt, use_model_only=False)
+        response = query_chatbot(prompt, use_model_only=(option == "Model"))
         st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
-        save_chat_history(st.session_state.chat_history)
 
     display_chat_messages()
 
