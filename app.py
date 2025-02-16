@@ -2,6 +2,11 @@ import os
 import streamlit as st
 import boto3  # AWS Polly for TTS
 import requests  # Needed for Groq API requests
+import tempfile
+import sounddevice as sd
+import numpy as np
+import wave
+from scipy.io.wavfile import write
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -114,10 +119,21 @@ def process_pdf(pdf_file):
 
     return vectorstore
 
+# ✅ Record Audio Using Microphone
+def record_audio(duration=5, sample_rate=44100):
+    """Records audio from the microphone for a given duration."""
+    st.info("🎙️ Recording... Speak now!")
+    audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=2, dtype=np.int16)
+    sd.wait()
+    temp_audio_path = "temp_voice_input.wav"
+    write(temp_audio_path, sample_rate, audio_data)
+    st.success("✅ Recording complete!")
+    return temp_audio_path
+
 # ✅ Streamlit UI
 def main():
     st.set_page_config(page_title="Anu AI Bot", page_icon="🤖")
-    st.title("🤖 Anu AI Bot - Now with PDF Support & Voice!")
+    st.title("🤖 Anu AI Bot - Now with Voice & PDFs!")
 
     # Sidebar - File Upload
     with st.sidebar:
@@ -141,13 +157,15 @@ def main():
         with st.chat_message(message["role"], avatar=message["avatar"]):
             st.markdown(message["content"])
 
-    # ✅ Voice Input (STT)
-    audio_file = st.file_uploader("🎙️ Upload a voice query (MP3/WAV)", type=["mp3", "wav"])
-    if audio_file and st.button("Convert Speech to Text"):
-        with st.spinner("Converting speech to text..."):
-            transcribed_text = speech_to_text(audio_file)
-            st.text_area("Transcribed Text:", value=transcribed_text, height=100)
-            prompt = transcribed_text
+    # ✅ Voice Input (STT) using a Microphone Button
+    if st.button("🎤 Record Voice Input"):
+        with st.spinner("Recording voice..."):
+            audio_path = record_audio()
+            with open(audio_path, "rb") as audio_file:
+                transcribed_text = speech_to_text(audio_file)
+
+        st.text_area("Transcribed Text:", value=transcribed_text, height=100)
+        prompt = transcribed_text
     else:
         prompt = st.chat_input("Ask a question...")
 
