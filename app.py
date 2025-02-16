@@ -37,7 +37,7 @@ except KeyError:
 st.title("Anu AI bot")
 
 # Sidebar logo
-image_url = "logo-new.png"
+image_path = "images/logo-new.png"
 st.sidebar.image(image_url, caption="", use_column_width=True, 
                  on_error=lambda: st.sidebar.image(
                      "https://static.vecteezy.com/system/resources/previews/010/794/341/non_2x/purple-artificial-intelligence-technology-circuit-file-free-png.png",
