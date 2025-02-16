@@ -23,18 +23,23 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
 from pinecone import Pinecone, ServerlessSpec
-
-# ✅ New Pinecone initialization
+# ✅ Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# ✅ Check and create the index correctly
-if PINECONE_INDEX_NAME not in pc.list_indexes():
+# ✅ Get the list of existing indexes
+existing_indexes = [index_info["name"] for index_info in pc.list_indexes()]
+
+# ✅ Only create if it does NOT exist
+if PINECONE_INDEX_NAME not in existing_indexes:
+    print(f"🔹 Creating new Pinecone index: {PINECONE_INDEX_NAME}")
     pc.create_index(
         name=PINECONE_INDEX_NAME,
-        dimension=384,  # Adjust according to your embeddings model
+        dimension=384,  # ✅ Ensure this matches your embedding model
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region="us-east-1")
     )
+else:
+    print(f"✅ Index '{PINECONE_INDEX_NAME}' already exists. Skipping creation.")
 
 # ✅ Ensure nltk dependency
 try:
