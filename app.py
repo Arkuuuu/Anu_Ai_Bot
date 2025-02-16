@@ -9,8 +9,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
 from io import BytesIO
-import time
-from streamlit_mic_recorder import mic_recorder  # ✅ New Microphone Recorder
+import base64
+from streamlit_mic_recorder import mic_recorder  # ✅ Fixed Web-Based Mic Input
 
 # ✅ Load environment variables
 load_dotenv()
@@ -30,7 +30,7 @@ polly_client = boto3.client("polly",
                             region_name=AWS_REGION)
 
 # ✅ Speech-to-Text (STT) Function using Groq Whisper API
-def speech_to_text(audio_file):
+def speech_to_text(audio_path):
     """Convert spoken audio to text using Groq Whisper API."""
     try:
         url = "https://api.groq.com/v1/audio/transcriptions"
@@ -38,7 +38,7 @@ def speech_to_text(audio_file):
             "Authorization": f"Bearer {GROQ_API_KEY}"
         }
         files = {
-            "file": audio_file,
+            "file": open(audio_path, "rb"),
             "model": (None, "whisper-large-v3")
         }
 
@@ -147,11 +147,15 @@ def main():
     audio_data = mic_recorder()
 
     if audio_data and st.button("Convert Speech to Text"):
-        with st.spinner("Converting speech to text..."):
-            with open("temp_voice_input.wav", "wb") as f:
-                f.write(audio_data)
+        with st.spinner("Processing speech..."):
+            # Decode and save audio file
+            audio_path = "temp_voice_input.wav"
+            audio_bytes = base64.b64decode(audio_data.split(",")[1])
             
-            transcribed_text = speech_to_text("temp_voice_input.wav")
+            with open(audio_path, "wb") as f:
+                f.write(audio_bytes)
+
+            transcribed_text = speech_to_text(audio_path)
 
         st.text_area("Transcribed Text:", value=transcribed_text, height=100)
         prompt = transcribed_text
