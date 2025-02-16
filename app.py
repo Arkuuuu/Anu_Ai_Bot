@@ -8,9 +8,8 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import FAISS
-from io import BytesIO
 import base64
-from streamlit_mic_recorder import mic_recorder  # ✅ Fixed Web-Based Mic Input
+from streamlit_mic_recorder import mic_recorder  # ✅ Web-Based Mic Input
 
 # ✅ Load environment variables
 load_dotenv()
@@ -34,13 +33,8 @@ def speech_to_text(audio_path):
     """Convert spoken audio to text using Groq Whisper API."""
     try:
         url = "https://api.groq.com/v1/audio/transcriptions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}"
-        }
-        files = {
-            "file": open(audio_path, "rb"),
-            "model": (None, "whisper-large-v3")
-        }
+        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+        files = {"file": open(audio_path, "rb"), "model": (None, "whisper-large-v3")}
 
         response = requests.post(url, headers=headers, files=files)
         response_data = response.json()
@@ -76,10 +70,7 @@ def text_to_speech(text):
 def query_chatbot(question):
     """Send user query to Groq API and return response."""
     url = "https://api.groq.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     data = {
         "model": "llama-3.3-70b-versatile",
         "messages": [
@@ -142,25 +133,38 @@ def main():
         with st.chat_message(message["role"], avatar=message["avatar"]):
             st.markdown(message["content"])
 
-    # ✅ Voice Input (STT) using Web-Based Mic Button
-    st.write("🎙️ Click below to record your voice:")
-    audio_data = mic_recorder()
+    # ✅ Voice Input (STT) using Microphone Button 🎤
+    st.markdown(
+        """
+        <style>
+            .stChatInput { display: flex; align-items: center; }
+            .stChatInput button { background: none; border: none; font-size: 20px; cursor: pointer; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if audio_data and st.button("Convert Speech to Text"):
-        with st.spinner("Processing speech..."):
-            # Decode and save audio file
+    col1, col2 = st.columns([0.1, 0.9])
+    with col1:
+        mic_clicked = st.button("🎤")  # Mic emoji button
+    
+    with col2:
+        prompt = st.text_input("Type your message...")
+
+    # ✅ Auto Speech-to-Text Processing After Recording
+    if mic_clicked:
+        st.info("🎙️ Recording... Speak now!")
+        audio_data = mic_recorder()
+        
+        if audio_data:
+            st.success("✅ Recording complete! Converting speech to text...")
             audio_path = "temp_voice_input.wav"
             audio_bytes = base64.b64decode(audio_data.split(",")[1])
-            
+
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
 
-            transcribed_text = speech_to_text(audio_path)
-
-        st.text_area("Transcribed Text:", value=transcribed_text, height=100)
-        prompt = transcribed_text
-    else:
-        prompt = st.chat_input("Ask a question...")
+            prompt = speech_to_text(audio_path)
 
     # ✅ Process Query & Generate Response
     if prompt:
