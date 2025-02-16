@@ -2,7 +2,6 @@ import os
 import requests
 import streamlit as st
 import nltk
-import pinecone
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -10,7 +9,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
-from pinecone import Pinecone, ServerlessSpec
+from pinecone import Pinecone
 
 # ✅ Load environment variables
 load_dotenv()
@@ -22,23 +21,8 @@ PINECONE_INDEX_NAME = "chatbot-memory"
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone client
+# ✅ Initialize Pinecone client (No index creation!)
 pc = Pinecone(api_key=PINECONE_API_KEY)
-
-# ✅ Get existing indexes (Optimized)
-existing_indexes = pc.list_indexes()
-
-# ✅ Create index only if it doesn't exist
-if PINECONE_INDEX_NAME not in existing_indexes:
-    print(f"🔹 Creating new Pinecone index: {PINECONE_INDEX_NAME}")
-    pc.create_index(
-        name=PINECONE_INDEX_NAME,
-        dimension=384,
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
-    )
-else:
-    print(f"✅ Index '{PINECONE_INDEX_NAME}' already exists. Skipping creation.")
 
 # ✅ Ensure nltk dependency
 try:
@@ -70,6 +54,13 @@ def load_pdf(pdf_path):
     """Load and extract text from a PDF."""
     return PyPDFLoader(pdf_path).load()
 
+@st.cache_resource  # ✅ Cache to prevent reloading Pinecone every time
+def load_vector_store():
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
+
+docsearch = load_vector_store()
+
 def store_embeddings(input_path, source_name):
     """Process and store embeddings only if not already stored."""
     if "processed_files" not in st.session_state:
@@ -95,7 +86,7 @@ def store_embeddings(input_path, source_name):
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
     # ✅ Efficiently store embeddings in Pinecone (Batch Processing)
-    vector_store = PineconeVectorStore.from_texts(text_chunks, embedding=embeddings, index_name=PINECONE_INDEX_NAME)
+    PineconeVectorStore.from_texts(text_chunks, embedding=embeddings, index_name=PINECONE_INDEX_NAME)
 
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
@@ -104,7 +95,7 @@ def store_embeddings(input_path, source_name):
 
 def query_chatbot(question, use_model_only=False):
     """Retrieve relevant information from stored embeddings and generate a response."""
-    retries = 3  # ✅ Retry up to 3 times for API failures
+    retries = 3  
     for attempt in range(retries):
         try:
             if use_model_only:
@@ -118,20 +109,41 @@ def query_chatbot(question, use_model_only=False):
                 )
                 return chat_completion.choices[0].message.content
 
+            # ✅ Use cached docsearch for faster querying
+            relevant_docs = docsearch.similarity_search(question, k=10)
+
+            if not relevant_docs:
+                return "❌ No relevant information found."
+
+            retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
+
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You are an advanced AI assistant."},
+                    {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
+                ],
+                model="llama-3.3-70b-versatile",
+                stream=False,
+            )
+
+            return chat_completion.choices[0].message.content
+
         except Exception as e:
-            print(f"❌ Groq API Error (Attempt {attempt+1}/{retries}):", str(e))
-            st.error("⚠️ Error: API is not responding. Retrying...")
-    
-    return "⚠️ Error: Unable to process your request. Please try again later."
+            error_message = str(e)
+            print(f"❌ Groq API Error (Attempt {attempt+1}/{retries}):", error_message)
+            st.error(f"⚠️ API Error: {error_message}")
+
+    return "⚠️ Sorry, I couldn't process your request. Please try again later."
 
 # ---------------------------- Streamlit UI ----------------------------
 
 def display_chat_messages():
-    """Display chat messages in a styled format."""
+    """Display chat messages with styled bubbles."""
     for message in st.session_state.chat_history:
+        bg_color = "#DCF8C6" if message["role"] == "assistant" else "#E0E0E0"
         with st.chat_message(message["role"], avatar=message["avatar"]):
             st.markdown(
-                f"<div style='padding:10px; border-radius:8px; background-color:#f1f1f1; margin-bottom:5px;'>{message['content']}</div>",
+                f"<div style='padding:10px; border-radius:8px; background-color:{bg_color}; margin-bottom:5px;'>{message['content']}</div>",
                 unsafe_allow_html=True
             )
 
@@ -149,52 +161,43 @@ def main():
 
         st.caption(f"Current Knowledge Source: {st.session_state.current_source_name}")
 
-        # ✅ Use form for better responsiveness
         with st.form("file_upload"):
             option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
-
-            if option == "Upload PDF":
-                pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
-
-            elif option == "Enter URL":
-                url = st.text_input("Enter website URL:")
+            
+            pdf_file = st.file_uploader("Choose PDF file", type=["pdf"]) if option == "Upload PDF" else None
+            url = st.text_input("Enter website URL:") if option == "Enter URL" else ""
 
             submitted = st.form_submit_button("Process")
 
         if submitted:
             with st.spinner("Processing..."):
-                if option == "Upload PDF" and pdf_file:
+                if pdf_file:
                     temp_path = f"temp_{pdf_file.name}"
                     with open(temp_path, "wb") as f:
                         f.write(pdf_file.getbuffer())
-                    result = store_embeddings(temp_path, pdf_file.name)
-                    st.success(result)
+                    st.success(store_embeddings(temp_path, pdf_file.name))
+                elif url:
+                    st.success(store_embeddings(url, url))
 
-                elif option == "Enter URL" and url:
-                    result = store_embeddings(url, url)
-                    st.success(result)
-
-    # Main chat interface
+    # Chat Interface
     st.subheader("Chat with Anu AI")
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    display_chat_messages()  # ✅ Use function for structured chat display
+    if st.sidebar.button("🗑 Clear Chat"):
+        st.session_state.chat_history = []
+        st.success("Chat history cleared!")
+
+    display_chat_messages()
 
     if prompt := st.chat_input("Ask a question... 🎤"):
         st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
-
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
-
         with st.spinner("🔍 Analyzing..."):
             response = query_chatbot(prompt, use_model_only=(option == "Model"))
-
             st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
-
-            with st.chat_message("assistant", avatar="🤖"):
-                st.markdown(response)
+    
+    display_chat_messages()
 
 if __name__ == "__main__":
     main()
