@@ -8,4 +8,6 @@ huggingface-hub
 sentence-transformers
 boto3  # AWS Polly (Text-to-Speech)
 requests  # For Groq API (AI Responses + Whisper STT)
+sounddevice  # For recording audio from mic
+scipy  # For processing recorded audio
 beautifulsoup4  # Web Scraping (if needed)
