@@ -3,6 +3,7 @@ import requests
 import json
 import streamlit as st
 import nltk
+import boto3
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,7 +12,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
-from streamlit_audio_recorder import st_audio_recorder  # ✅ Streamlit-compatible audio recorder
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings  # ✅ Alternative for audio recording
+import av  # Required for handling audio streams
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -21,17 +23,28 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+AWS_REGION = os.getenv("AWS_REGION")
 PINECONE_INDEX_NAME = "chatbot-memory"
 CHAT_HISTORY_FILE = "/mnt/data/chat_history.json"  # ✅ Custom storage path
 
-if not PINECONE_API_KEY or not GROQ_API_KEY:
+if not PINECONE_API_KEY or not GROQ_API_KEY or not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone client (No index creation!)
+# ✅ Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
+
+# ✅ Initialize AWS Polly client
+polly_client = boto3.client(
+    "polly",
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=AWS_REGION
+)
 
 # ---------------------------- Helper Functions ----------------------------
 
@@ -111,19 +124,17 @@ def transcribe_audio_groq(audio_bytes):
     else:
         return f"⚠️ Error: {response.json()}"
 
-def query_chatbot(question, use_model_only=False):
-    """Retrieve relevant information from stored embeddings and generate a response."""
-    if use_model_only:
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are an advanced AI assistant."},
-                {"role": "user", "content": question}
-            ],
-            model="llama-3.3-70b-versatile",
-            stream=False,
-        )
-        return chat_completion.choices[0].message.content
+def synthesize_speech_aws(text):
+    """Convert text to speech using AWS Polly."""
+    response = polly_client.synthesize_speech(
+        Text=text,
+        OutputFormat="mp3",
+        VoiceId="Joanna"  # You can change the voice
+    )
+    return response["AudioStream"].read()
 
+def query_chatbot(question):
+    """Retrieve relevant information from stored embeddings and generate a response."""
     relevant_docs = docsearch.similarity_search(question, k=10)
 
     if not relevant_docs:
@@ -144,16 +155,6 @@ def query_chatbot(question, use_model_only=False):
 
 # ---------------------------- Streamlit UI ----------------------------
 
-def display_chat_messages():
-    """Display chat messages with styled bubbles."""
-    for message in st.session_state.chat_history:
-        bg_color = "#DCF8C6" if message["role"] == "assistant" else "#E0E0E0"
-        with st.chat_message(message["role"], avatar=message["avatar"]):
-            st.markdown(
-                f"<div style='padding:10px; border-radius:8px; background-color:{bg_color}; margin-bottom:5px;'>{message['content']}</div>",
-                unsafe_allow_html=True
-            )
-
 def main():
     st.title("🧠 Anu AI - Your Intelligent Assistant")
 
@@ -161,47 +162,35 @@ def main():
         st.header("⚙️ Configuration")
         st.divider()
 
-        if "current_source_name" not in st.session_state:
-            st.session_state.current_source_name = "collegedata.pdf"
-
-        st.caption(f"Current Knowledge Source: {st.session_state.current_source_name}")
-
         option = st.radio("Select knowledge base:", ("Model", "College Data", "Upload PDF", "Enter URL"), index=0)
 
         if option == "Upload PDF":
             pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
             if pdf_file:
-                temp_path = f"temp_{pdf_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(pdf_file.getbuffer())
-
                 with st.spinner("Processing PDF..."):
-                    result = store_embeddings(open(temp_path, "r", encoding="utf-8").read(), pdf_file.name)
-                    st.success(result)
+                    text = PyPDFLoader(pdf_file).load()
+                    processed_text = "\n".join([doc.page_content for doc in text])
+                    st.success(store_embeddings(processed_text, pdf_file.name))
 
         elif option == "Enter URL":
             url = st.text_input("Enter website URL:")
             if st.button("Process URL") and url:
                 with st.spinner("Analyzing website content..."):
                     if is_valid_url(url):
-                        result = store_embeddings(extract_text_from_webpage(url), url)
-                        st.success(result)
-
-    display_chat_messages()
+                        st.success(store_embeddings(extract_text_from_webpage(url), url))
 
     # ✅ Voice Input
-    audio_data = st_audio_recorder(start_prompt="🎙 Click to record", stop_prompt="🛑 Stop", format="wav")
-    if audio_data:
+    webrtc_ctx = webrtc_streamer(key="speech-to-text", mode=WebRtcMode.SENDRECV)
+    if webrtc_ctx.audio_receiver:
         st.success("🎧 Recording captured! Processing...")
-        transcript = transcribe_audio_groq(audio_data)
+        audio_bytes = webrtc_ctx.audio_receiver.get_frames(timeout=1.0)[0].to_ndarray().tobytes()
+        transcript = transcribe_audio_groq(audio_bytes)
         st.session_state.chat_history.append({"role": "user", "content": transcript, "avatar": "👤"})
 
     if prompt := st.chat_input("Ask a question... 🎤"):
-        st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
-        response = query_chatbot(prompt, use_model_only=(option == "Model"))
+        response = query_chatbot(prompt)
         st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
-
-    display_chat_messages()
+        st.audio(synthesize_speech_aws(response), format="audio/mp3")
 
 if __name__ == "__main__":
     main()
