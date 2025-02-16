@@ -1,0 +1,10 @@
+streamlit
+pandas
+langchain
+faiss-cpu
+PyPDF2
+huggingface-hub
+langchainhub
+python-dotenv
+uuid
+transformers
