@@ -9,3 +9,4 @@ python-dotenv
 uuid
 transformers
 langchain-experimental
+langchain-groq
