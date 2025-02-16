@@ -41,7 +41,7 @@ image_path = "logo-new.png"
 
 # Check if the image exists in the deployment environment
 if os.path.exists(image_path):
-    st.sidebar.image(image_path, caption="", use_column_width=True)
+   st.sidebar.image(image_path, caption="", use_container_width=True)
 else:
     # Use a fallback online image if the logo is missing
     fallback_url = "https://static.vecteezy.com/system/resources/previews/010/794/341/non_2x/purple-artificial-intelligence-technology-circuit-file-free-png.png"
