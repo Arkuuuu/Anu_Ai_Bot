@@ -11,6 +11,9 @@ from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
 
+# ✅ Streamlit page config MUST be the first Streamlit command!
+st.set_page_config(page_title="Anu AI", page_icon="🧠")
+
 # ✅ Load environment variables
 load_dotenv()
 
@@ -148,8 +151,7 @@ def display_chat_messages():
             )
 
 def main():
-    st.set_page_config(page_title="Anu AI", page_icon="🧠")
-    st.title("🧠 Anu AI - Your Intelligent Assistant")
+       st.title("🧠 Anu AI - Your Intelligent Assistant")
 
     # Sidebar configuration
     with st.sidebar:
