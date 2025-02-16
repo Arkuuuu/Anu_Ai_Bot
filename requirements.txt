@@ -8,3 +8,4 @@ langchainhub
 python-dotenv
 uuid
 transformers
+langchain-experimental
