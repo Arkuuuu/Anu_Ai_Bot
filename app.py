@@ -149,9 +149,8 @@ def display_chat_messages():
                 f"<div style='padding:10px; border-radius:8px; background-color:{bg_color}; margin-bottom:5px;'>{message['content']}</div>",
                 unsafe_allow_html=True
             )
-
 def main():
-           st.title("🧠 Anu AI - Your Intelligent Assistant")
+    st.title("🧠 Anu AI - Your Intelligent Assistant")  # ✅ Fixed indentation
 
     # Sidebar configuration
     with st.sidebar:
