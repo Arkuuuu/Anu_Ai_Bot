@@ -1,197 +1,211 @@
 import os
 import requests
 import streamlit as st
-import boto3  # AWS Polly for TTS
-import tempfile
+import nltk
+import pinecone
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
-import base64
-from streamlit_mic_recorder import mic_recorder  # ✅ Web-Based Mic Input
+from langchain_community.vectorstores import Pinecone as PineconeVectorStore
+from groq import Groq
+from pinecone import ServerlessSpec
 
-# ✅ Load environment variables
+# Load environment variables
 load_dotenv()
 
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+PINECONE_INDEX_NAME = "college-data"
 
-if not GROQ_API_KEY or not AWS_ACCESS_KEY or not AWS_SECRET_KEY:
-    raise ValueError("❌ ERROR: Missing API keys. Check your Streamlit Secrets!")
+if not PINECONE_API_KEY or not GROQ_API_KEY:
+    raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize AWS Polly for TTS
-polly_client = boto3.client("polly",
-                            aws_access_key_id=AWS_ACCESS_KEY,
-                            aws_secret_access_key=AWS_SECRET_KEY,
-                            region_name=AWS_REGION)
+# ✅ Initialize Pinecone properly
+pinecone.init(api_key=PINECONE_API_KEY, environment="us-east-1-gcp")
 
-# ✅ Speech-to-Text (STT) Function using Groq Whisper API
-def speech_to_text(audio_path):
-    """Convert spoken audio to text using Groq Whisper API."""
+if PINECONE_INDEX_NAME not in pinecone.list_indexes():
+    pinecone.create_index(
+        name=PINECONE_INDEX_NAME,
+        dimension=384,
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region="us-east-1")
+    )
+
+# ✅ Ensure nltk dependency
+try:
+    nltk.data.find('corpora/averaged_perceptron_tagger')
+except LookupError:
+    nltk.download('averaged_perceptron_tagger')
+
+# ✅ Initialize Groq client
+client = Groq(api_key=GROQ_API_KEY)
+
+# ---------------------------- Helper Functions ----------------------------
+
+def is_valid_url(url):
+    """Check if the URL is valid and accessible."""
     try:
-        url = "https://api.groq.com/openai/v1/audio/transcriptions"
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-        files = {"file": open(audio_path, "rb"), "model": (None, "whisper-large-v3")}
+        response = requests.get(url, timeout=10)
+        return response.status_code == 200
+    except requests.exceptions.RequestException:
+        return False
 
-        response = requests.post(url, headers=headers, files=files)
-        response_data = response.json()
+def extract_text_from_webpage(url):
+    """Extract text content from a webpage."""
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    paragraphs = soup.find_all("p")
+    return "\n".join([para.get_text() for para in paragraphs]).strip()
 
-        if "text" in response_data:
-            return response_data["text"]
+def load_pdf(pdf_path):
+    """Load and extract text from a PDF."""
+    return PyPDFLoader(pdf_path).load()
+
+def store_embeddings(input_path, source_name):
+    """Process and store embeddings only if not already stored."""
+    if "processed_files" not in st.session_state:
+        st.session_state.processed_files = set()
+
+    if source_name in st.session_state.processed_files:
+        return "✅ This document is already processed. You can now ask queries!"
+
+    if input_path.startswith("http"):
+        if not is_valid_url(input_path):
+            return "❌ Error: URL is not accessible."
+
+        if input_path.endswith(".pdf"):
+            documents = PyPDFLoader(input_path).load()
+            text_data = "\n".join([doc.page_content for doc in documents])
         else:
-            return "❌ STT Error: No text received from Whisper API."
+            text_data = extract_text_from_webpage(input_path)
+            if not text_data:
+                return "❌ Error: No readable text found."
+    else:
+        documents = load_pdf(input_path)
+        text_data = "\n".join([doc.page_content for doc in documents])
 
-    except Exception as e:
-        return f"❌ STT Request Failed: {str(e)}"
+    text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(text_data)
 
-# ✅ Text-to-Speech (TTS) Function with Auto-Play
-def text_to_speech(text):
-    """Convert text to speech using AWS Polly and auto-play the response."""
-    try:
-        response = polly_client.synthesize_speech(Text=text,
-                                                  OutputFormat="mp3",
-                                                  VoiceId="Joanna")
-        audio_stream = response["AudioStream"].read()
+    if not text_chunks:
+        return "❌ Error: No text found in document."
 
-        # Save and auto-play audio
-        audio_file_path = "response.mp3"
-        with open(audio_file_path, "wb") as f:
-            f.write(audio_stream)
+    # ✅ Initialize embedding model
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-        st.audio(audio_file_path, format="audio/mp3")
+    # ✅ Store embeddings in Pinecone
+    docsearch = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
+    docsearch.add_texts(text_chunks)
 
-    except Exception as e:
-        st.error(f"❌ TTS Error: {str(e)}")
+    # ✅ Mark file as processed
+    st.session_state.processed_files.add(source_name)
+    st.session_state.current_source_name = source_name
 
-# ✅ AI Chatbot Function using Groq API & LLaMA-3.3-70b-versatile
-def query_chatbot(question):
-    """Retrieve response from Groq API or PDF Knowledge Base."""
-    context_text = ""
+    return "✅ Data successfully processed and stored."
 
-    if "vectorstore" in st.session_state and st.session_state.vectorstore:
-        retriever = st.session_state.vectorstore.as_retriever()
-        relevant_docs = retriever.get_relevant_documents(question)
+def query_chatbot(question, use_model_only=False):
+    """Retrieve relevant information from stored embeddings and generate a response."""
+    if use_model_only:
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are an advanced AI assistant, ready to answer any query."},
+                {"role": "user", "content": question}
+            ],
+            model="llama-3-70b",
+            stream=False,
+        )
+        return chat_completion.choices[0].message.content
 
-        retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
-
-        if retrieved_text.strip():
-            context_text = f"Using retrieved context:\n\n{retrieved_text}\n\n"
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    data = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": "You are a helpful AI assistant."},
-            {"role": "user", "content": context_text + question}
-        ]
-    }
+    # Use Pinecone for document retrieval
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
     try:
-        response = requests.post(url, headers=headers, json=data)
-        response_data = response.json()
-
-        if "choices" in response_data and response_data["choices"]:
-            return response_data["choices"][0]["message"]["content"]
-        else:
-            return "❌ No response received from Groq API."
-
+        docsearch = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
     except Exception as e:
-        return f"❌ Groq API Request Failed: {str(e)}"
+        return f"❌ Error: Could not connect to Pinecone index. {str(e)}"
 
-# ✅ Process PDF and Store in FAISS
-@st.cache_resource
-def process_pdf(pdf_file):
-    """Extracts text from a PDF file and stores embeddings in FAISS."""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(pdf_file.read())  # Save uploaded PDF as temp file
-            temp_pdf_path = temp_file.name
+    relevant_docs = docsearch.similarity_search(question, k=10)
 
-        loader = PyPDFLoader(temp_pdf_path)
-        documents = loader.load()
+    if not relevant_docs:
+        return "❌ No relevant information found."
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-        text_chunks = text_splitter.split_documents(documents)
+    retrieved_text = "\n".join([doc.page_content for doc in relevant_docs])
 
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-        vectorstore = FAISS.from_documents(text_chunks, embeddings)
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {"role": "system", "content": "You are an advanced AI assistant, ready to answer any query."},
+            {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
+        ],
+        model="llama-3-70b",
+        stream=False,
+    )
 
-        return vectorstore
+    return chat_completion.choices[0].message.content
 
-    except Exception as e:
-        st.error(f"❌ Error processing PDF: {str(e)}")
-        return None
+# ---------------------------- Streamlit UI ----------------------------
 
-# ✅ Streamlit UI
 def main():
-    st.set_page_config(page_title="Anu AI Bot", page_icon="🤖")
-    st.title("🤖 Anu AI Bot - Now with Voice & PDFs!")
+    st.set_page_config(page_title="Anu AI", page_icon="🧠")
+    st.title("🧠 Anu AI - Your Intelligent Assistant")
 
-    # Sidebar - File Upload
+    # Sidebar configuration
     with st.sidebar:
-        st.header("📂 Upload a PDF")
-        pdf_file = st.file_uploader("Choose a PDF", type=["pdf"])
-        
-        if pdf_file:
-            with st.spinner("Processing PDF..."):
-                vectorstore = process_pdf(pdf_file)
-                if vectorstore:
-                    st.session_state.vectorstore = vectorstore
-                    st.success("✅ PDF processed successfully! You can now ask questions.")
+        st.header("⚙️ Configuration")
+        st.divider()
 
-    # Chat UI
-    st.subheader("Chat with Anu AI Bot")
+        if "current_source_name" not in st.session_state:
+            st.session_state.current_source_name = "collegedata.pdf"
+
+        st.caption(f"Current Knowledge Source: {st.session_state.current_source_name}")
+
+        option = st.radio(
+            "Select knowledge base:",
+            ("Model", "College Data", "Upload PDF", "Enter URL"),
+            index=0
+        )
+
+        if option == "Upload PDF":
+            pdf_file = st.file_uploader("Choose PDF file", type=["pdf"])
+            if pdf_file:
+                temp_path = f"temp_{pdf_file.name}"
+                with open(temp_path, "wb") as f:
+                    f.write(pdf_file.getbuffer())
+
+                with st.spinner("Processing PDF..."):
+                    result = store_embeddings(temp_path, pdf_file.name)
+                    st.success(result)
+
+        elif option == "Enter URL":
+            url = st.text_input("Enter website URL:")
+            if st.button("Process URL") and url:
+                with st.spinner("Analyzing website content..."):
+                    result = store_embeddings(url, url)
+                    st.success(result)
+
+    # Main chat interface
+    st.subheader("Chat with Anu AI")
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Display chat history
     for message in st.session_state.chat_history:
         with st.chat_message(message["role"], avatar=message["avatar"]):
             st.markdown(message["content"])
 
-    # ✅ Styled Chat Input with Mic Button 🎤
-    mic_clicked = False
-    col1, col2 = st.columns([0.1, 0.9])
-    with col1:
-        mic_clicked = st.button("🎤", key="mic_button")  # Mic emoji button
-
-    with col2:
-        prompt = st.text_input("Type your message...")
-
-    # ✅ Auto Speech-to-Text Processing After Recording
-    if mic_clicked:
-        st.info("🎙️ Recording... Speak now!")
-        audio_data = mic_recorder()
-
-        if audio_data:
-            audio_path = "temp_voice_input.wav"
-            audio_bytes = base64.b64decode(audio_data.split(",")[1])
-
-            with open(audio_path, "wb") as f:
-                f.write(audio_bytes)
-
-            prompt = speech_to_text(audio_path)
-            st.success(f"📝 Recognized: {prompt}")
-
-    # ✅ Process Query & Generate Response
-    if prompt:
+    if prompt := st.chat_input("Ask a question... 🎤"):
         st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
+
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
 
         with st.spinner("🔍 Analyzing..."):
-            response = query_chatbot(prompt)
+            response = query_chatbot(prompt, use_model_only=(option == "Model"))
 
             st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
+
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(response)
-
-            text_to_speech(response)  # ✅ Auto Play Response
 
 if __name__ == "__main__":
     main()
