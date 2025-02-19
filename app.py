@@ -12,8 +12,6 @@ from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import Pinecone
 import pandas as pd
-from audio_recorder_streamlit import audio_recorder
-from utils import speech_to_text, text_to_speech, get_answer, store_embeddings
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -28,7 +26,7 @@ PINECONE_INDEX_NAME = "chatbot-memory"
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone client
+# ✅ Initialize Pinecone client (No index creation!)
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 # ✅ Ensure nltk dependency
@@ -39,6 +37,7 @@ except LookupError:
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
+
 # ---------------------------- Helper Functions ----------------------------
 
 @st.cache_resource
@@ -54,7 +53,6 @@ def load_vector_store():
 docsearch = load_vector_store()
 
 def is_valid_url(url):
-    """Check if a URL is valid and accessible."""
     try:
         response = requests.get(url, timeout=10)
         return response.status_code == 200
@@ -62,21 +60,18 @@ def is_valid_url(url):
         return False
 
 def extract_text_from_webpage(url):
-    """Extract text from a webpage."""
     response = requests.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
     paragraphs = soup.find_all("p")
     return "\n".join([para.get_text() for para in paragraphs]).strip()
 
 def load_pdf(pdf_path):
-    """Load and extract text from a PDF file."""
     documents = PyPDFLoader(pdf_path).load()
     if not documents:
         return "❌ Error: No readable text found in the PDF."
     return documents
 
 def store_embeddings(input_path, source_name):
-    """Store text embeddings into Pinecone for retrieval."""
     if "processed_files" not in st.session_state:
         st.session_state.processed_files = set()
 
@@ -109,7 +104,6 @@ def store_embeddings(input_path, source_name):
     return "✅ Data successfully processed and stored."
 
 def query_chatbot(question, use_model_only=False):
-    """Retrieve relevant data from Pinecone and generate a chatbot response."""
     retries = 3
     delay = 2  
     for attempt in range(retries):
@@ -143,11 +137,9 @@ def query_chatbot(question, use_model_only=False):
             if attempt == retries - 1:
                 return "⚠️ Sorry, I couldn't process your request. Please try again later."
 
-
 # ---------------------------- Streamlit UI ----------------------------
 
 def display_chat_messages():
-    """Display chat messages with proper styling."""
     for message in st.session_state.chat_history:
         bg_color = "#DCF8C6" if message["role"] == "assistant" else "#E0E0E0"
         with st.chat_message(message["role"], avatar=message["avatar"]):
@@ -202,8 +194,8 @@ def main():
                     st.success(store_embeddings(url, url))
                     st.session_state.current_source_name = url  # ✅ Update source dynamically
 
-    # ✅ Handle voice input
     st.subheader("Chat with Anu AI")
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -213,31 +205,11 @@ def main():
 
     display_chat_messages()
 
-    # 🎤 Voice Input Handling
-    audio_bytes = audio_recorder()
-    if audio_bytes:
-        with st.spinner("Transcribing..."):
-            temp_audio_path = "temp_audio.mp3"
-            with open(temp_audio_path, "wb") as f:
-                f.write(audio_bytes)
-
-            transcript = speech_to_text(temp_audio_path)
-            if transcript:
-                st.session_state.chat_history.append({"role": "user", "content": transcript, "avatar": "👤"})
-                with st.chat_message("user"):
-                    st.write(transcript)
-
-                with st.spinner("Thinking 🤔..."):
-                    final_response = get_answer(st.session_state.chat_history)
-
-                with st.spinner("Generating audio response..."):
-                    audio_file = text_to_speech(final_response)
-
-                st.session_state.chat_history.append({"role": "assistant", "content": final_response, "avatar": "🤖"})
-                st.audio(audio_file, format="audio/mp3")
-
-                os.remove(temp_audio_path)
-                os.remove(audio_file)
+    if prompt := st.chat_input("Ask a question... 🎤"):
+        st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
+        with st.spinner("🔍 Analyzing..."):
+            response = query_chatbot(prompt, use_model_only=(selected_option == "Model"))
+            st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
 
     display_chat_messages()
 
