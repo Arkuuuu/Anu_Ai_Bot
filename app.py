@@ -52,13 +52,6 @@ def load_vector_store():
 
 docsearch = load_vector_store()
 
-def is_valid_url(url):
-    try:
-        response = requests.get(url, timeout=10)
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
-        return False
-
 def extract_text_from_webpage(url):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
@@ -76,12 +69,12 @@ def store_embeddings(input_path, source_name):
         st.session_state.processed_files = set()
 
     if source_name in st.session_state.processed_files:
+        st.session_state.current_source_name = source_name  # ✅ Update source dynamically
         return "✅ This document is already processed. You can now ask queries!"
 
+    # ✅ Load PDF or extract web data
     text_data = ""
     if input_path.startswith("http"):
-        if not is_valid_url(input_path):
-            return "❌ Error: URL is not accessible."
         text_data = extract_text_from_webpage(input_path)
     else:
         documents = load_pdf(input_path)
@@ -99,7 +92,7 @@ def store_embeddings(input_path, source_name):
         )
 
     st.session_state.processed_files.add(source_name)
-    st.session_state.current_source_name = source_name
+    st.session_state.current_source_name = source_name  # ✅ Update source dynamically
 
     return "✅ Data successfully processed and stored."
 
@@ -175,6 +168,7 @@ def main():
         elif selected_option == "Enter URL":
             st.session_state.current_source_name = "Website URL (Pending Processing)"
 
+        # ✅ Display current knowledge source (Updated)
         st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.current_source_name}`")
 
         # ✅ Auto-processing on file upload
@@ -184,15 +178,17 @@ def main():
             with open(temp_path, "wb") as f:
                 f.write(pdf_file.getbuffer())
             with st.spinner("Processing..."):
-                st.success(store_embeddings(temp_path, pdf_file.name))
+                processing_message = store_embeddings(temp_path, pdf_file.name)
                 st.session_state.current_source_name = pdf_file.name  # ✅ Update source dynamically
+                st.success(processing_message)
 
+        # ✅ Auto-processing on URL entry
         url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
-
         if url:
             with st.spinner("Processing URL..."):
-                st.success(store_embeddings(url, url))
+                processing_message = store_embeddings(url, url)
                 st.session_state.current_source_name = url  # ✅ Update source dynamically
+                st.success(processing_message)
 
     st.subheader("Chat with Anu AI")
 
@@ -202,14 +198,6 @@ def main():
     if st.sidebar.button("🗑 Clear Chat"):
         st.session_state.chat_history = []
         st.success("Chat history cleared!")
-
-    display_chat_messages()
-
-    if prompt := st.chat_input("Ask a question... 🎤"):
-        st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
-        with st.spinner("🔍 Analyzing..."):
-            response = query_chatbot(prompt, use_model_only=(selected_option == "Model"))
-            st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
 
     display_chat_messages()
 
