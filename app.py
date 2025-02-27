@@ -10,8 +10,9 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
-from pinecone import  Pinecone
+from pinecone import  Pinecone,GRPCIndex
 import pandas as pd
+import asyncio
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -38,6 +39,17 @@ except LookupError:
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
+def fix_asyncio():
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # No event loop running
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+fix_asyncio()
+
+
+
 # ---------------------------- Helper Functions ----------------------------
 
 @st.cache_resource
@@ -48,7 +60,8 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
+    pinecone_index = GRPCIndex(PINECONE_INDEX_NAME)  # ✅ Corrected initialization
+    return PineconeVectorStore(index=pinecone_index, embedding=embeddings)
 
 docsearch = load_vector_store()
 
