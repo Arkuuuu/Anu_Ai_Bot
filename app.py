@@ -43,12 +43,13 @@ client = Groq(api_key=GROQ_API_KEY)
 def fix_asyncio():
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:  # No event loop running
+    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+    return loop
 
-fix_asyncio()
-
+# ✅ Ensure a running event loop before using asyncio
+asyncio_loop = fix_asyncio()
 
 
 # ---------------------------- Helper Functions ----------------------------
