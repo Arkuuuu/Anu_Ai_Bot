@@ -1,7 +1,7 @@
 streamlit
 nltk
 python-dotenv
-pinecone-client
+pinecone
 langchain
 langchain-community
 beautifulsoup4
@@ -16,4 +16,4 @@ sentence-transformers
 tiktoken
 openai
 boto3
-pinecone
+
