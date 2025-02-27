@@ -67,6 +67,8 @@ def load_vector_store():
         return None
 
 
+docsearch = load_vector_store()  # ✅ Ensure vector store is loaded
+
 def is_valid_url(url):
     try:
         response = requests.get(url, timeout=10)
@@ -107,6 +109,8 @@ def store_embeddings(input_path, source_name):
     if not text_chunks:
         return "❌ Error: No text found in document."
 
+    print(f"📄 Storing {len(text_chunks)} chunks in Pinecone...")  # ✅ Debug: Show how many chunks are stored
+
     vector_store = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
 
     batch_size = 100
@@ -122,9 +126,6 @@ def store_embeddings(input_path, source_name):
 
     return "✅ Data successfully processed and stored."
 
-
-
-
 def query_chatbot(question, use_model_only=False):
     retries = 3
     delay = 2  
@@ -139,13 +140,15 @@ def query_chatbot(question, use_model_only=False):
                 )
                 return chat_completion.choices[0].message.content
 
+            # ✅ Debug: Check if Pinecone returns results
             relevant_docs = docsearch.max_marginal_relevance_search(question, k=10, fetch_k=20, lambda_mult=0.5)
-            print(f"🔍 Retrieved {len(relevant_docs)} relevant docs.")  # ✅ Debugging output
+            print(f"🔍 Pinecone Retrieved {len(relevant_docs)} relevant docs.")
 
             if not relevant_docs:
                 return "❌ No relevant information found in the document."
 
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
+            print(f"📜 Retrieved Text: {retrieved_text[:500]}...")  # ✅ Show preview of retrieved text
 
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "system", "content": "You are an advanced AI assistant."},
@@ -161,7 +164,6 @@ def query_chatbot(question, use_model_only=False):
             delay *= 2  
             if attempt == retries - 1:
                 return "⚠️ Sorry, I couldn't process your request. Please try again later."
-
 
 # ---------------------------- Streamlit UI ----------------------------
 
