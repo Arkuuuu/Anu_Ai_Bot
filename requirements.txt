@@ -16,3 +16,4 @@ sentence-transformers
 tiktoken
 openai
 boto3
+pinecone
