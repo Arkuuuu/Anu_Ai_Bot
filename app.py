@@ -29,7 +29,7 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
 # ✅ Initialize Pinecone client (No index creation!)
-pc = Pinecone(api_key=PINECONE_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY, environment="us-east-1")  # ✅ Ensure correct environment
 pinecone_index = pc.Index(PINECONE_INDEX_NAME) 
 
 # ✅ Ensure nltk dependency
@@ -63,19 +63,14 @@ embeddings = load_embeddings()
 @st.cache_resource
 def load_vector_store():
     try:
-        # Check available indexes
-        existing_indexes = pc.list_indexes()
-        st.write(f"✅ Available Pinecone Indexes: {existing_indexes}")
-
-        if PINECONE_INDEX_NAME not in [idx['name'] for idx in existing_indexes]:
-            raise ValueError(f"❌ Error: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Check index name.")
-
-        # ✅ Properly load the existing index
-        return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
+        # ✅ Properly initialize Pinecone Index
+        pinecone_index = pc.Index(PINECONE_INDEX_NAME)  # ✅ Correct way to load Pinecone index
+        return PineconeVectorStore(pinecone_index, embeddings)  # ✅ Correct initialization
 
     except Exception as e:
         st.error(f"❌ Pinecone initialization error: {e}")
         return None
+
 
 docsearch = load_vector_store()
 
