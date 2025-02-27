@@ -12,7 +12,7 @@ from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 from pinecone import  Pinecone
 import pandas as pd
-import asyncio
+
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -39,13 +39,6 @@ except LookupError:
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
-
-import asyncio
-
-try:
-    asyncio.get_running_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())  # ✅ Correct way to set event loop
 
 
 # ---------------------------- Helper Functions ----------------------------
@@ -119,14 +112,15 @@ def store_embeddings(input_path, source_name):
     batch_size = 100
     for i in range(0, len(text_chunks), batch_size):
         vector_store.add_texts(
-            texts=text_chunks[i : i + batch_size],  # ✅ Explicitly define 'texts'
-            ids=[str(j) for j in range(i, i + len(text_chunks[i : i + batch_size]))]  # ✅ Assign unique IDs
+            texts=text_chunks[i : i + batch_size],  
+            ids=[f"{source_name}_{j}" for j in range(i, i + len(text_chunks[i : i + batch_size]))]  # ✅ Unique IDs
         )
  
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
 
     return "✅ Data successfully processed and stored."
+
 
 
 def query_chatbot(question, use_model_only=False):
