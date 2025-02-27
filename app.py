@@ -63,12 +63,7 @@ embeddings = load_embeddings()
 @st.cache_resource
 def load_vector_store():
     try:
-        # ✅ Ensure Pinecone index exists
-        existing_indexes = [idx['name'] for idx in pc.list_indexes()]
-        if PINECONE_INDEX_NAME not in existing_indexes:
-            raise ValueError(f"❌ Error: Pinecone index '{PINECONE_INDEX_NAME}' does not exist.")
-
-        # ✅ Correctly initialize PineconeVectorStore using from_existing_index()
+        # ✅ Correctly load Pinecone Index
         return PineconeVectorStore.from_existing_index(
             index_name=PINECONE_INDEX_NAME,  # ✅ Correct way to load index
             embedding=embeddings,  
