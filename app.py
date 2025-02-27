@@ -22,7 +22,8 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-PINECONE_INDEX_NAME = "chatbot-memory"
+PINECONE_INDEX_NAME = "chatbot-memory" 
+
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
@@ -62,14 +63,16 @@ embeddings = load_embeddings()
 @st.cache_resource
 def load_vector_store():
     try:
-        # Ensure Pinecone is connected
+        # Check available indexes
         existing_indexes = pc.list_indexes()
-        if PINECONE_INDEX_NAME not in existing_indexes:
-            raise ValueError(f"❌ Error: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Available indexes: {existing_indexes}")
+        st.write(f"✅ Available Pinecone Indexes: {existing_indexes}")
+
+        if PINECONE_INDEX_NAME not in [idx['name'] for idx in existing_indexes]:
+            raise ValueError(f"❌ Error: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Check index name.")
 
         # ✅ Properly load the existing index
         return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
-    
+
     except Exception as e:
         st.error(f"❌ Pinecone initialization error: {e}")
         return None
