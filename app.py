@@ -3,7 +3,6 @@ import time
 import requests
 import streamlit as st
 import nltk
-import Pinecone
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,6 +10,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
+from pinecone import  Pinecone
 import pandas as pd
 
 # ✅ Streamlit page config
