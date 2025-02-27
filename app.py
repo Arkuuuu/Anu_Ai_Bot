@@ -113,13 +113,15 @@ def store_embeddings(input_path, source_name):
     for i in range(0, len(text_chunks), batch_size):
         vector_store.add_texts(
             texts=text_chunks[i : i + batch_size],  
-            ids=[f"{source_name}_{j}" for j in range(i, i + len(text_chunks[i : i + batch_size]))]  # ✅ Unique IDs
+            ids=[f"{source_name}_{j}" for j in range(i, i + len(text_chunks[i : i + batch_size]))]  
         )
- 
+        print(f"✅ Stored batch {i}-{i + batch_size} in Pinecone.")
+
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
 
     return "✅ Data successfully processed and stored."
+
 
 
 
@@ -138,8 +140,10 @@ def query_chatbot(question, use_model_only=False):
                 return chat_completion.choices[0].message.content
 
             relevant_docs = docsearch.max_marginal_relevance_search(question, k=10, fetch_k=20, lambda_mult=0.5)
+            print(f"🔍 Retrieved {len(relevant_docs)} relevant docs.")  # ✅ Debugging output
+
             if not relevant_docs:
-                return "❌ No relevant information found."
+                return "❌ No relevant information found in the document."
 
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
 
@@ -152,10 +156,12 @@ def query_chatbot(question, use_model_only=False):
             return chat_completion.choices[0].message.content
 
         except Exception as e:
+            print(f"❌ Error querying chatbot: {e}")
             time.sleep(delay)
             delay *= 2  
             if attempt == retries - 1:
                 return "⚠️ Sorry, I couldn't process your request. Please try again later."
+
 
 # ---------------------------- Streamlit UI ----------------------------
 
