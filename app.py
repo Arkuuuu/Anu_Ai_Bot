@@ -61,8 +61,7 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    pinecone_index = pc.Index(PINECONE_INDEX_NAME)  # ✅ Correct Pinecone index loading
-    return PineconeVectorStore(index=pinecone_index, embedding=embeddings)
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)  # ✅ Correct way to initialize
 
 docsearch = load_vector_store()
 
