@@ -10,7 +10,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
-from pinecone import  Pinecone,GRPCIndex
+from pinecone import  Pinecone
 import pandas as pd
 import asyncio
 
@@ -29,6 +29,7 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
 
 # ✅ Initialize Pinecone client (No index creation!)
 pc = Pinecone(api_key=PINECONE_API_KEY)
+pinecone_index = pc.Index(PINECONE_INDEX_NAME) 
 
 # ✅ Ensure nltk dependency
 try:
