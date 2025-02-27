@@ -116,14 +116,13 @@ def store_embeddings(input_path, source_name):
 
     vector_store = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
 
-batch_size = 100
-for i in range(0, len(text_chunks), batch_size):
-    vector_store.add_texts(
-        texts=text_chunks[i : i + batch_size],  # ✅ Explicitly define 'texts'
-        ids=[str(j) for j in range(i, i + len(text_chunks[i : i + batch_size]))]  # ✅ Assign unique IDs
-    )
+    batch_size = 100
+    for i in range(0, len(text_chunks), batch_size):
+        vector_store.add_texts(
+            texts=text_chunks[i : i + batch_size],  # ✅ Explicitly define 'texts'
+            ids=[str(j) for j in range(i, i + len(text_chunks[i : i + batch_size]))]  # ✅ Assign unique IDs
+        )
  
-
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
 
