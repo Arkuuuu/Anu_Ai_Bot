@@ -68,16 +68,17 @@ def load_vector_store():
         if PINECONE_INDEX_NAME not in existing_indexes:
             raise ValueError(f"❌ Error: Pinecone index '{PINECONE_INDEX_NAME}' does not exist.")
 
-        # ✅ Correctly initialize PineconeVectorStore
+        # ✅ Correctly initialize PineconeVectorStore using from_existing_index()
         return PineconeVectorStore.from_existing_index(
-            index_name=PINECONE_INDEX_NAME, 
-            embedding=embeddings, 
-            text_key="text"  # ✅ Required parameter
+            index_name=PINECONE_INDEX_NAME,  # ✅ Correct way to load index
+            embedding=embeddings,  
+            text_key="text"  # ✅ Required parameter for LangChain
         )
 
     except Exception as e:
         st.error(f"❌ Pinecone initialization error: {e}")
         return None
+
 
 docsearch = load_vector_store()
 
