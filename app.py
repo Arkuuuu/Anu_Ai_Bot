@@ -40,16 +40,12 @@ except LookupError:
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
-def fix_asyncio():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop
+import asyncio
 
-# ✅ Ensure a running event loop before using asyncio
-asyncio_loop = fix_asyncio()
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())  # ✅ Correct way to set event loop
 
 
 # ---------------------------- Helper Functions ----------------------------
@@ -63,17 +59,20 @@ embeddings = load_embeddings()
 @st.cache_resource
 def load_vector_store():
     try:
+        # ✅ Ensure the index exists before loading
+        available_indexes = pc.list_indexes()
+        if PINECONE_INDEX_NAME not in [idx['name'] for idx in available_indexes]:
+            raise ValueError(f"❌ Pinecone index '{PINECONE_INDEX_NAME}' does not exist!")
+
         return PineconeVectorStore.from_existing_index(
             index_name=PINECONE_INDEX_NAME,  # ✅ Correct usage
-            embedding=embeddings  # ✅ No text_key needed
+            embedding=embeddings  
         )
 
     except Exception as e:
         st.error(f"❌ Pinecone initialization error: {e}")
         return None
 
-
-docsearch = load_vector_store()
 
 def is_valid_url(url):
     try:
@@ -115,13 +114,15 @@ def store_embeddings(input_path, source_name):
     if not text_chunks:
         return "❌ Error: No text found in document."
 
-    # ✅ Load the existing Pinecone index
     vector_store = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
 
-    batch_size = 100
-    for i in range(0, len(text_chunks), batch_size):
-        # ✅ Correct method for adding embeddings
-        vector_store.add_texts(text_chunks[i : i + batch_size])  
+batch_size = 100
+for i in range(0, len(text_chunks), batch_size):
+    vector_store.add_texts(
+        texts=text_chunks[i : i + batch_size],  # ✅ Explicitly define 'texts'
+        ids=[str(j) for j in range(i, i + len(text_chunks[i : i + batch_size]))]  # ✅ Assign unique IDs
+    )
+ 
 
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
