@@ -10,9 +10,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
-from pinecone import  Pinecone
+from pinecone import Pinecone
 import pandas as pd
-
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -22,14 +21,13 @@ load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-PINECONE_INDEX_NAME = "chatbot-memory" 
-
+PINECONE_INDEX_NAME = "chatbot-memory"
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
 # ✅ Initialize Pinecone client (No index creation!)
-pc = Pinecone(api_key=PINECONE_API_KEY, environment="us-east-1")  # ✅ Ensure correct environment
+pc = Pinecone(api_key=PINECONE_API_KEY)
 
 # ✅ Ensure nltk dependency
 try:
@@ -39,7 +37,6 @@ except LookupError:
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
-
 
 # ---------------------------- Helper Functions ----------------------------
 
@@ -51,23 +48,9 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    try:
-        # ✅ Ensure the index exists before loading
-        available_indexes = pc.list_indexes()
-        if PINECONE_INDEX_NAME not in [idx['name'] for idx in available_indexes]:
-            raise ValueError(f"❌ Pinecone index '{PINECONE_INDEX_NAME}' does not exist!")
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
 
-        return PineconeVectorStore.from_existing_index(
-            index_name=PINECONE_INDEX_NAME,  # ✅ Correct usage
-            embedding=embeddings  
-        )
-
-    except Exception as e:
-        st.error(f"❌ Pinecone initialization error: {e}")
-        return None
-
-
-docsearch = load_vector_store()  # ✅ Ensure vector store is loaded
+docsearch = load_vector_store()
 
 def is_valid_url(url):
     try:
@@ -109,17 +92,11 @@ def store_embeddings(input_path, source_name):
     if not text_chunks:
         return "❌ Error: No text found in document."
 
-    print(f"📄 Storing {len(text_chunks)} chunks in Pinecone...")  # ✅ Debug: Show how many chunks are stored
-
-    vector_store = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
-
     batch_size = 100
     for i in range(0, len(text_chunks), batch_size):
-        vector_store.add_texts(
-            texts=text_chunks[i : i + batch_size],  
-            ids=[f"{source_name}_{j}" for j in range(i, i + len(text_chunks[i : i + batch_size]))]  
+        PineconeVectorStore.from_texts(
+            text_chunks[i : i + batch_size], embedding=embeddings, index_name=PINECONE_INDEX_NAME
         )
-        print(f"✅ Stored batch {i}-{i + batch_size} in Pinecone.")
 
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
@@ -140,15 +117,11 @@ def query_chatbot(question, use_model_only=False):
                 )
                 return chat_completion.choices[0].message.content
 
-            # ✅ Debug: Check if Pinecone returns results
             relevant_docs = docsearch.max_marginal_relevance_search(question, k=10, fetch_k=20, lambda_mult=0.5)
-            print(f"🔍 Pinecone Retrieved {len(relevant_docs)} relevant docs.")
-
             if not relevant_docs:
-                return "❌ No relevant information found in the document."
+                return "❌ No relevant information found."
 
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
-            print(f"📜 Retrieved Text: {retrieved_text[:500]}...")  # ✅ Show preview of retrieved text
 
             chat_completion = client.chat.completions.create(
                 messages=[{"role": "system", "content": "You are an advanced AI assistant."},
@@ -159,7 +132,6 @@ def query_chatbot(question, use_model_only=False):
             return chat_completion.choices[0].message.content
 
         except Exception as e:
-            print(f"❌ Error querying chatbot: {e}")
             time.sleep(delay)
             delay *= 2  
             if attempt == retries - 1:
@@ -205,22 +177,22 @@ def main():
 
         st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.current_source_name}`")
 
-        # ✅ Auto-processing on file upload
-        pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
-        if pdf_file:
-            temp_path = f"temp_{pdf_file.name}"
-            with open(temp_path, "wb") as f:
-                f.write(pdf_file.getbuffer())
+        with st.form("file_upload"):
+            pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
+            url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
+            submitted = st.form_submit_button("Process")
+
+        if submitted:
             with st.spinner("Processing..."):
-                st.success(store_embeddings(temp_path, pdf_file.name))
-                st.session_state.current_source_name = pdf_file.name  # ✅ Update source dynamically
-
-        url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
-
-        if url:
-            with st.spinner("Processing URL..."):
-                st.success(store_embeddings(url, url))
-                st.session_state.current_source_name = url  # ✅ Update source dynamically
+                if pdf_file:
+                    temp_path = f"temp_{pdf_file.name}"
+                    with open(temp_path, "wb") as f:
+                        f.write(pdf_file.getbuffer())
+                    st.success(store_embeddings(temp_path, pdf_file.name))
+                    st.session_state.current_source_name = pdf_file.name  # ✅ Update source
+                elif url:
+                    st.success(store_embeddings(url, url))
+                    st.session_state.current_source_name = url  # ✅ Update source dynamically
 
     st.subheader("Chat with Anu AI")
 
