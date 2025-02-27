@@ -30,7 +30,6 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
 
 # ✅ Initialize Pinecone client (No index creation!)
 pc = Pinecone(api_key=PINECONE_API_KEY, environment="us-east-1")  # ✅ Ensure correct environment
-pinecone_index = pc.Index(PINECONE_INDEX_NAME) 
 
 # ✅ Ensure nltk dependency
 try:
@@ -63,11 +62,9 @@ embeddings = load_embeddings()
 @st.cache_resource
 def load_vector_store():
     try:
-        # ✅ Correctly load Pinecone Index
         return PineconeVectorStore.from_existing_index(
-            index_name=PINECONE_INDEX_NAME,  # ✅ Correct way to load index
-            embedding=embeddings,  
-            text_key="text"  # ✅ Required parameter for LangChain
+            index_name=PINECONE_INDEX_NAME,  # ✅ Correct usage
+            embedding=embeddings  # ✅ No text_key needed
         )
 
     except Exception as e:
@@ -117,16 +114,19 @@ def store_embeddings(input_path, source_name):
     if not text_chunks:
         return "❌ Error: No text found in document."
 
+    # ✅ Load the existing Pinecone index
+    vector_store = PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
+
     batch_size = 100
     for i in range(0, len(text_chunks), batch_size):
-        PineconeVectorStore.from_texts(
-            text_chunks[i : i + batch_size], embedding=embeddings, index_name=PINECONE_INDEX_NAME
-        )
+        # ✅ Correct method for adding embeddings
+        vector_store.add_texts(text_chunks[i : i + batch_size])  
 
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
 
     return "✅ Data successfully processed and stored."
+
 
 def query_chatbot(question, use_model_only=False):
     retries = 3
