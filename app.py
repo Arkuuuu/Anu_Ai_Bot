@@ -177,22 +177,22 @@ def main():
 
         st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.current_source_name}`")
 
-        with st.form("file_upload"):
-            pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
-            url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
-            submitted = st.form_submit_button("Process")
-
-        if submitted:
+        # ✅ Auto-processing on file upload
+        pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
+        if pdf_file:
+            temp_path = f"temp_{pdf_file.name}"
+            with open(temp_path, "wb") as f:
+                f.write(pdf_file.getbuffer())
             with st.spinner("Processing..."):
-                if pdf_file:
-                    temp_path = f"temp_{pdf_file.name}"
-                    with open(temp_path, "wb") as f:
-                        f.write(pdf_file.getbuffer())
-                    st.success(store_embeddings(temp_path, pdf_file.name))
-                    st.session_state.current_source_name = pdf_file.name  # ✅ Update source
-                elif url:
-                    st.success(store_embeddings(url, url))
-                    st.session_state.current_source_name = url  # ✅ Update source dynamically
+                st.success(store_embeddings(temp_path, pdf_file.name))
+                st.session_state.current_source_name = pdf_file.name  # ✅ Update source dynamically
+
+        url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
+
+        if url:
+            with st.spinner("Processing URL..."):
+                st.success(store_embeddings(url, url))
+                st.session_state.current_source_name = url  # ✅ Update source dynamically
 
     st.subheader("Chat with Anu AI")
 
