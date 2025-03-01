@@ -48,7 +48,8 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings, pc)
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings, namespace="")
+
 
 docsearch = load_vector_store()
 
