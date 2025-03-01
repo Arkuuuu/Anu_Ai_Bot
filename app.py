@@ -40,7 +40,7 @@ client = Groq(api_key=GROQ_API_KEY)
 
 # ---------------------------- Helper Functions ----------------------------
 
-@st.cache_resource(allow_output_mutation=True)
+@st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
