@@ -39,16 +39,12 @@ except LookupError:
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
-# ✅ Check if Pinecone index exists
-existing_indexes = pc.list_indexes()
-if PINECONE_INDEX_NAME not in existing_indexes:
-    pc.create_index(name=PINECONE_INDEX_NAME, dimension=384, metric="cosine")
 
 # ---------------------------- Helper Functions ----------------------------
 
 @st.cache_resource
-def load_embeddings():
-    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+def load_embeddings():    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 embeddings = load_embeddings()
 
