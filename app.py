@@ -26,7 +26,7 @@ PINECONE_INDEX_NAME = "chatbot-memory"
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone client (No index creation!)
+# ✅ Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
 # ✅ Ensure nltk dependency
@@ -40,15 +40,15 @@ client = Groq(api_key=GROQ_API_KEY)
 
 # ---------------------------- Helper Functions ----------------------------
 
-@st.cache_resource
+@st.cache_resource(allow_output_mutation=True)
 def load_embeddings():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 embeddings = load_embeddings()
 
-@st.cache_resource
+@st.cache_resource(allow_output_mutation=True)
 def load_vector_store():
-    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings)
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings, pc)
 
 docsearch = load_vector_store()
 
@@ -76,7 +76,7 @@ def store_embeddings(input_path, source_name):
         st.session_state.processed_files = set()
 
     if source_name in st.session_state.processed_files:
-        return "✅ This document is already processed. You can now ask queries!"
+        return "✅ This document is already processed."
 
     text_data = ""
     if input_path.startswith("http"):
@@ -109,13 +109,13 @@ def query_chatbot(question, use_model_only=False):
     for attempt in range(retries):
         try:
             if use_model_only:
-                chat_completion = client.chat.completions.create(
+                response = client.chat.completions.create(
                     messages=[{"role": "system", "content": "You are an advanced AI assistant."},
                               {"role": "user", "content": question}],
                     model="llama-3.3-70b-versatile",
                     stream=False,
                 )
-                return chat_completion.choices[0].message.content
+                return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
 
             relevant_docs = docsearch.max_marginal_relevance_search(question, k=10, fetch_k=20, lambda_mult=0.5)
             if not relevant_docs:
@@ -123,13 +123,13 @@ def query_chatbot(question, use_model_only=False):
 
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
 
-            chat_completion = client.chat.completions.create(
+            response = client.chat.completions.create(
                 messages=[{"role": "system", "content": "You are an advanced AI assistant."},
                           {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}],
                 model="llama-3.3-70b-versatile",
                 stream=False,
             )
-            return chat_completion.choices[0].message.content
+            return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
 
         except Exception as e:
             time.sleep(delay)
