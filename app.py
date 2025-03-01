@@ -14,7 +14,7 @@ from groq import Groq
 import pandas as pd
 
 # ✅ Streamlit page config
-st.set_page_config(page_title="Anu AI", page_icon="🧠")
+st.set_page_config(page_title="Anu AI", page_icon="🧠", layout="wide")
 
 # ✅ Load environment variables
 load_dotenv()
@@ -22,13 +22,18 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
-PINECONE_ENVIRONMENT = "us-east-1"  # ✅ Ensure correct region
+PINECONE_ENVIRONMENT = "us-east-1"
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
-    raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
+    st.error("❌ ERROR: Missing API keys. Check your .env file!")
+    st.stop()
 
 # ✅ Initialize Pinecone once (before cached functions)
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+try:
+    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+except Exception as e:
+    st.error(f"❌ Pinecone Initialization Failed: {e}")
+    st.stop()
 
 # ✅ Ensure nltk dependency
 try:
@@ -47,14 +52,19 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    index_list = pinecone.list_indexes()
-    if PINECONE_INDEX_NAME not in index_list:
-        raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
+    try:
+        index_list = pinecone.list_indexes()
+        if PINECONE_INDEX_NAME not in index_list:
+            st.error(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
+            st.stop()
 
-    return PineconeVectorStore.from_existing_index(
-        index_name=PINECONE_INDEX_NAME,
-        embedding=embeddings
-    )
+        return PineconeVectorStore.from_existing_index(
+            index_name=PINECONE_INDEX_NAME,
+            embedding=embeddings
+        )
+    except Exception as e:
+        st.error(f"❌ Pinecone Error: {e}")
+        st.stop()
 
 docsearch = load_vector_store()
 
@@ -66,16 +76,22 @@ def is_valid_url(url):
         return False
 
 def extract_text_from_webpage(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-    paragraphs = soup.find_all("p")
-    return "\n".join([para.get_text() for para in paragraphs]).strip()
+    try:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        paragraphs = soup.find_all("p")
+        return "\n".join([para.get_text() for para in paragraphs]).strip()
+    except Exception as e:
+        return f"❌ Error extracting text: {e}"
 
 def load_pdf(pdf_path):
-    documents = PyPDFLoader(pdf_path).load()
-    if not documents:
-        return "❌ Error: No readable text found in the PDF."
-    return documents
+    try:
+        documents = PyPDFLoader(pdf_path).load()
+        if not documents:
+            return "❌ Error: No readable text found in the PDF."
+        return documents
+    except Exception as e:
+        return f"❌ Error loading PDF: {e}"
 
 def store_embeddings(input_path, source_name):
     if "processed_files" not in st.session_state:
@@ -141,7 +157,7 @@ def query_chatbot(question, use_model_only=False):
             time.sleep(delay)
             delay *= 2  
             if attempt == retries - 1:
-                return "⚠️ Sorry, I couldn't process your request. Please try again later."
+                return f"⚠️ Sorry, I couldn't process your request. Error: {e}"
 
 # ---------------------------- Streamlit UI ----------------------------
 
