@@ -3,7 +3,7 @@ import time
 import requests
 import streamlit as st
 import nltk
-import Pinecone
+import pinecone  # ✅ Correct Pinecone import
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -22,13 +22,13 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
-PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
+PINECONE_ENVIRONMENT = "us-east-1"  # ✅ Ensure correct region
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone client
-pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# ✅ Initialize Pinecone (Moved outside cache)
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -39,17 +39,11 @@ except LookupError:
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
-
-# ---------------------------- Helper Functions ----------------------------
-
 @st.cache_resource
-
-def load_embeddings():    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+def load_embeddings():
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 embeddings = load_embeddings()
-
-# ✅ Initialize Pinecone once at the start
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 @st.cache_resource
 def load_vector_store():
