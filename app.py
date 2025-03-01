@@ -22,12 +22,13 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
+PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
 # ✅ Initialize Pinecone client
-pc = Pinecone(api_key=PINECONE_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -37,6 +38,11 @@ except LookupError:
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
+
+# ✅ Check if Pinecone index exists
+existing_indexes = pc.list_indexes()
+if PINECONE_INDEX_NAME not in existing_indexes:
+    pc.create_index(name=PINECONE_INDEX_NAME, dimension=384, metric="cosine")
 
 # ---------------------------- Helper Functions ----------------------------
 
@@ -48,8 +54,7 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings, namespace="")
-
+    return PineconeVectorStore.from_existing_index(index_name=PINECONE_INDEX_NAME, embedding=embeddings)
 
 docsearch = load_vector_store()
 
