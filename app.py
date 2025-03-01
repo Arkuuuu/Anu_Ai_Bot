@@ -27,7 +27,7 @@ PINECONE_ENVIRONMENT = "us-east-1"  # ✅ Ensure correct region
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone (Moved outside cache)
+# ✅ Initialize Pinecone once (before cached functions)
 pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
@@ -47,7 +47,8 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    if PINECONE_INDEX_NAME not in pinecone.list_indexes():
+    index_list = pinecone.list_indexes()
+    if PINECONE_INDEX_NAME not in index_list:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
 
     return PineconeVectorStore.from_existing_index(
