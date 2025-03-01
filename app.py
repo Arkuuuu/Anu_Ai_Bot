@@ -46,7 +46,7 @@ def load_embeddings():
 
 embeddings = load_embeddings()
 
-@st.cache_resource(allow_output_mutation=True)
+@st.cache_resource
 def load_vector_store():
     return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings, pc)
 
