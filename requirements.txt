@@ -1,7 +1,7 @@
 streamlit
 nltk
 python-dotenv
-pinecone
+pinecone-client
 langchain
 langchain-community
 beautifulsoup4
