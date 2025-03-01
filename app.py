@@ -48,10 +48,11 @@ def load_embeddings():    return HuggingFaceEmbeddings(model_name="sentence-tran
 
 embeddings = load_embeddings()
 
+# ✅ Initialize Pinecone once at the start
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+
 @st.cache_resource
 def load_vector_store():
-    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)  # ✅ Ensure Pinecone is initialized
-    
     if PINECONE_INDEX_NAME not in pinecone.list_indexes():
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
 
