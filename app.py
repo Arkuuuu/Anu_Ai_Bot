@@ -50,10 +50,16 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
+    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)  # ✅ Ensure Pinecone is initialized
+    
+    if PINECONE_INDEX_NAME not in pinecone.list_indexes():
+        raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
+
     return PineconeVectorStore.from_existing_index(
         index_name=PINECONE_INDEX_NAME,
         embedding=embeddings
     )
+
 docsearch = load_vector_store()
 
 def is_valid_url(url):
