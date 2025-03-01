@@ -50,7 +50,21 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    return PineconeVectorStore.from_existing_index(index_name=PINECONE_INDEX_NAME, embedding=embeddings)
+    # ✅ Ensure the Pinecone index exists before loading vector store
+    existing_indexes = pc.list_indexes()
+    if PINECONE_INDEX_NAME not in existing_indexes:
+        pc.create_index(name=PINECONE_INDEX_NAME, dimension=384, metric="cosine")
+
+    # ✅ Wait until the index is ready
+    while pc.describe_index(PINECONE_INDEX_NAME).status != "ready":
+        time.sleep(2)
+
+    # ✅ Initialize Pinecone vector store with explicit client
+    return PineconeVectorStore.from_existing_index(
+        index_name=PINECONE_INDEX_NAME,
+        embedding=embeddings,
+        pinecone_client=pc
+    )
 
 docsearch = load_vector_store()
 
