@@ -26,10 +26,10 @@ PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# ✅ Initialize Pinecone using the new instance-based API.
-# With pinecone==2.2.2, we create an instance instead of calling a top-level init.
-from pinecone import Pinecone, ServerlessSpec
-pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# ✅ Initialize Pinecone using the new API.
+# For pinecone==3.0.0 (or above), import Client from pinecone.core.client.
+from pinecone.core.client import Client, ServerlessSpec
+pc = Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -56,7 +56,7 @@ def load_vector_store():
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
     # Get the index instance using the new API.
-    pinecone_index = pc.Index(PINECONE_INDEX_NAME)
+    pinecone_index = pc.index(PINECONE_INDEX_NAME)
     # Instantiate the vector store using the retrieved index.
     return PineconeVectorStore(pinecone_index, embedding=embeddings, text_key="text")
 
