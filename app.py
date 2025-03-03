@@ -11,6 +11,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
+import pinecone  # Using pinecone==3.0.0
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -27,9 +28,8 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
 # ✅ Initialize Pinecone using the new API.
-# For pinecone==3.0.0 (or above), import Client from pinecone.core.client.
-from pinecone.core.client import Client, ServerlessSpec
-pc = Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# Note: Instead of importing from pinecone.core.client, we use pinecone.Client directly.
+pc = pinecone.Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -50,7 +50,7 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    # Retrieve the list of indexes using the new API.
+    # Retrieve the list of indexes using the new Pinecone client.
     indexes = pc.list_indexes().names()
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
