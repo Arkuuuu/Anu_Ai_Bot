@@ -16,11 +16,8 @@ import pandas as pd
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
-# ✅ Load environment variables
-load_dotenv()
-
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
 PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 
