@@ -3,7 +3,7 @@ import time
 import requests
 import streamlit as st
 import nltk
-import pinecone  # ✅ Correct Pinecone import
+import pinecone
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -14,7 +14,7 @@ from groq import Groq
 import pandas as pd
 
 # ✅ Streamlit page config
-st.set_page_config(page_title="Anu AI", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
 # ✅ Load environment variables
 load_dotenv()
@@ -22,18 +22,13 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
-PINECONE_ENVIRONMENT = "us-east-1"
+PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
-    st.error("❌ ERROR: Missing API keys. Check your .env file!")
-    st.stop()
+    raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
 
-# ✅ Initialize Pinecone once (before cached functions)
-try:
-    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-except Exception as e:
-    st.error(f"❌ Pinecone Initialization Failed: {e}")
-    st.stop()
+# ✅ Initialize Pinecone client
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -44,6 +39,8 @@ except LookupError:
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
 
+# ---------------------------- Helper Functions ----------------------------
+
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
@@ -52,19 +49,14 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    try:
-        index_list = pinecone.list_indexes()
-        if PINECONE_INDEX_NAME not in index_list:
-            st.error(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
-            st.stop()
-
-        return PineconeVectorStore.from_existing_index(
-            index_name=PINECONE_INDEX_NAME,
-            embedding=embeddings
-        )
-    except Exception as e:
-        st.error(f"❌ Pinecone Error: {e}")
-        st.stop()
+    indexes = pinecone.list_indexes()
+    st.write("Pinecone indexes available:", indexes)
+    if PINECONE_INDEX_NAME not in indexes:
+        raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
+    return PineconeVectorStore.from_existing_index(
+        index_name=PINECONE_INDEX_NAME,
+        embedding=embeddings
+    )
 
 docsearch = load_vector_store()
 
@@ -76,22 +68,16 @@ def is_valid_url(url):
         return False
 
 def extract_text_from_webpage(url):
-    try:
-        response = requests.get(url)
-        soup = BeautifulSoup(response.text, "html.parser")
-        paragraphs = soup.find_all("p")
-        return "\n".join([para.get_text() for para in paragraphs]).strip()
-    except Exception as e:
-        return f"❌ Error extracting text: {e}"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    paragraphs = soup.find_all("p")
+    return "\n".join([para.get_text() for para in paragraphs]).strip()
 
 def load_pdf(pdf_path):
-    try:
-        documents = PyPDFLoader(pdf_path).load()
-        if not documents:
-            return "❌ Error: No readable text found in the PDF."
-        return documents
-    except Exception as e:
-        return f"❌ Error loading PDF: {e}"
+    documents = PyPDFLoader(pdf_path).load()
+    if not documents:
+        return "❌ Error: No readable text found in the PDF."
+    return documents
 
 def store_embeddings(input_path, source_name):
     if "processed_files" not in st.session_state:
@@ -110,6 +96,7 @@ def store_embeddings(input_path, source_name):
         text_data = "\n".join([doc.page_content for doc in documents])
 
     text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(text_data)
+    st.write("Number of text chunks:", len(text_chunks))
 
     if not text_chunks:
         return "❌ Error: No text found in document."
@@ -132,34 +119,37 @@ def query_chatbot(question, use_model_only=False):
         try:
             if use_model_only:
                 response = client.chat.completions.create(
-                    messages=[{"role": "system", "content": "You are an advanced AI assistant."},
-                              {"role": "user", "content": question}],
+                    messages=[
+                        {"role": "system", "content": "You are an advanced AI assistant."},
+                        {"role": "user", "content": question}
+                    ],
                     model="llama-3.3-70b-versatile",
                     stream=False,
                 )
                 return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
 
-            relevant_docs = docsearch.max_marginal_relevance_search(question, k=10, fetch_k=20, lambda_mult=0.5)
+            relevant_docs = docsearch.max_marginal_relevance_search(
+                question, k=10, fetch_k=20, lambda_mult=0.5
+            )
             if not relevant_docs:
                 return "❌ No relevant information found."
 
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
-
             response = client.chat.completions.create(
-                messages=[{"role": "system", "content": "You are an advanced AI assistant."},
-                          {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}],
+                messages=[
+                    {"role": "system", "content": "You are an advanced AI assistant."},
+                    {"role": "user", "content": f"Relevant Information:\n\n{retrieved_text}\n\nUser's question: {question}"}
+                ],
                 model="llama-3.3-70b-versatile",
                 stream=False,
             )
             return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
-
         except Exception as e:
+            st.error(f"Error encountered during query attempt {attempt + 1}: {e}")
             time.sleep(delay)
             delay *= 2  
             if attempt == retries - 1:
-                return f"⚠️ Sorry, I couldn't process your request. Error: {e}"
-
-# ---------------------------- Streamlit UI ----------------------------
+                return "⚠️ Sorry, I couldn't process your request. Please try again later."
 
 def display_chat_messages():
     for message in st.session_state.chat_history:
@@ -182,10 +172,12 @@ def main():
             st.session_state.current_source_name = "Model (No external knowledge)"
 
         # ✅ Radio selection with session tracking
-        selected_option = st.radio("Select knowledge base:", 
-                                   ("Model", "College Data", "Upload PDF", "Enter URL"),
-                                   index=("Model", "College Data", "Upload PDF", "Enter URL").index(st.session_state.selected_option),
-                                   key="selected_option")
+        selected_option = st.radio(
+            "Select knowledge base:", 
+            ("Model", "College Data", "Upload PDF", "Enter URL"),
+            index=("Model", "College Data", "Upload PDF", "Enter URL").index(st.session_state.selected_option),
+            key="selected_option"
+        )
 
         # ✅ Update knowledge source based on selection
         if selected_option == "Model":
@@ -207,14 +199,13 @@ def main():
                 f.write(pdf_file.getbuffer())
             with st.spinner("Processing..."):
                 st.success(store_embeddings(temp_path, pdf_file.name))
-                st.session_state.current_source_name = pdf_file.name  # ✅ Update source dynamically
+                st.session_state.current_source_name = pdf_file.name  # Update source dynamically
 
         url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
-
         if url:
             with st.spinner("Processing URL..."):
                 st.success(store_embeddings(url, url))
-                st.session_state.current_source_name = url  # ✅ Update source dynamically
+                st.session_state.current_source_name = url  # Update source dynamically
 
     st.subheader("Chat with Anu AI")
 
