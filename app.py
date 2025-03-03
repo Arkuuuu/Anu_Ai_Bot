@@ -11,6 +11,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
+# Import pinecone (version 3.x)
+import pinecone
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -26,10 +28,9 @@ PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# ✅ Initialize Pinecone using the new API.
-# For pinecone==3.0.0, we import Client from pinecone.client.
-from pinecone.client import Client
-pc = Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# ✅ Initialize Pinecone using the new client factory.
+from pinecone.core.client.factory import create_client
+pc = create_client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -84,8 +85,10 @@ def load_pdf(pdf_path):
 def store_embeddings(input_path, source_name):
     if "processed_files" not in st.session_state:
         st.session_state.processed_files = set()
+
     if source_name in st.session_state.processed_files:
         return "✅ This document is already processed."
+
     text_data = ""
     if input_path.startswith("http"):
         if not is_valid_url(input_path):
@@ -94,22 +97,27 @@ def store_embeddings(input_path, source_name):
     else:
         documents = load_pdf(input_path)
         text_data = "\n".join([doc.page_content for doc in documents])
+
     text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(text_data)
     st.write("Number of text chunks:", len(text_chunks))
+
     if not text_chunks:
         return "❌ Error: No text found in document."
+
     batch_size = 100
     for i in range(0, len(text_chunks), batch_size):
         PineconeVectorStore.from_texts(
             text_chunks[i : i + batch_size], embedding=embeddings, index_name=PINECONE_INDEX_NAME
         )
+
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
+
     return "✅ Data successfully processed and stored."
 
 def query_chatbot(question, use_model_only=False):
     retries = 3
-    delay = 2
+    delay = 2  
     for attempt in range(retries):
         try:
             if use_model_only:
@@ -122,11 +130,13 @@ def query_chatbot(question, use_model_only=False):
                     stream=False,
                 )
                 return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
+
             relevant_docs = docsearch.max_marginal_relevance_search(
                 question, k=10, fetch_k=20, lambda_mult=0.5
             )
             if not relevant_docs:
                 return "❌ No relevant information found."
+
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
             response = client.chat.completions.create(
                 messages=[
@@ -140,7 +150,7 @@ def query_chatbot(question, use_model_only=False):
         except Exception as e:
             st.error(f"Error encountered during query attempt {attempt + 1}: {e}")
             time.sleep(delay)
-            delay *= 2
+            delay *= 2  
             if attempt == retries - 1:
                 return "⚠️ Sorry, I couldn't process your request. Please try again later."
 
