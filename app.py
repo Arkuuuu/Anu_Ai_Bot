@@ -3,7 +3,6 @@ import time
 import requests
 import streamlit as st
 import nltk
-import pinecone
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyPDFLoader
@@ -16,16 +15,20 @@ import pandas as pd
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
-PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY")
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY")
+# ✅ Load environment variables (using st.secrets for production)
+if os.path.exists('.env'):
+    load_dotenv()
+PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
 PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
-    raise ValueError("❌ ERROR: Missing API keys. Check your .env file!")
+    raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# ✅ Initialize Pinecone client
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# ✅ Initialize Pinecone client using the new API.
+from pinecone import Pinecone, ServerlessSpec
+pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -46,7 +49,8 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    indexes = pinecone.list_indexes()
+    # Use the new Pinecone client instance to list indexes.
+    indexes = pc.list_indexes().names()
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
