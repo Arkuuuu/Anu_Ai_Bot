@@ -27,6 +27,7 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
 # ✅ Initialize Pinecone client using the new API.
+# Remove any call to pinecone.init(...)—create an instance instead.
 from pinecone import Pinecone, ServerlessSpec
 pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
@@ -49,14 +50,14 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    # Get list of indexes from the new Pinecone client instance.
+    # Retrieve the list of indexes using the new Pinecone client instance.
     indexes = pc.list_indexes().names()
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
-    # Retrieve the index instance using the new API.
+    # Get the specific index instance
     pinecone_index = pc.Index(PINECONE_INDEX_NAME)
-    # Pass the index instance to the PineconeVectorStore constructor.
+    # Instantiate the vector store using the retrieved index.
     return PineconeVectorStore(pinecone_index, embedding=embeddings, text_key="text")
 
 docsearch = load_vector_store()
