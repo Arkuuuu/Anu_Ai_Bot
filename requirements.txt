@@ -16,4 +16,4 @@ sentence-transformers
 tiktoken
 openai
 boto3
-
+pandas
