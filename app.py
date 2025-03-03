@@ -49,15 +49,15 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    # Use the new Pinecone client instance to list indexes.
+    # Get list of indexes from the new Pinecone client instance.
     indexes = pc.list_indexes().names()
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
-    return PineconeVectorStore.from_existing_index(
-        index_name=PINECONE_INDEX_NAME,
-        embedding=embeddings
-    )
+    # Retrieve the index instance using the new API.
+    pinecone_index = pc.Index(PINECONE_INDEX_NAME)
+    # Pass the index instance to the PineconeVectorStore constructor.
+    return PineconeVectorStore(pinecone_index, embedding=embeddings, text_key="text")
 
 docsearch = load_vector_store()
 
