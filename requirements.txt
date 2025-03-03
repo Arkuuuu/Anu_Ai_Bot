@@ -1,7 +1,7 @@
 streamlit
 nltk
 python-dotenv
-pinecone==2.2.0
+pinecone==2.2.2
 langchain
 langchain-community
 beautifulsoup4
