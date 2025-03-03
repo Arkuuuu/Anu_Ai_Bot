@@ -11,7 +11,6 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-import pinecone  # Using pinecone==3.0.0
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -28,8 +27,9 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
 # ✅ Initialize Pinecone using the new API.
-# Note: Instead of importing from pinecone.core.client, we use pinecone.Client directly.
-pc = pinecone.Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# For pinecone==3.0.0, we import Client from pinecone.client.
+from pinecone.client import Client
+pc = Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # ✅ Ensure nltk dependency
 try:
@@ -84,10 +84,8 @@ def load_pdf(pdf_path):
 def store_embeddings(input_path, source_name):
     if "processed_files" not in st.session_state:
         st.session_state.processed_files = set()
-
     if source_name in st.session_state.processed_files:
         return "✅ This document is already processed."
-
     text_data = ""
     if input_path.startswith("http"):
         if not is_valid_url(input_path):
@@ -96,27 +94,22 @@ def store_embeddings(input_path, source_name):
     else:
         documents = load_pdf(input_path)
         text_data = "\n".join([doc.page_content for doc in documents])
-
     text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(text_data)
     st.write("Number of text chunks:", len(text_chunks))
-
     if not text_chunks:
         return "❌ Error: No text found in document."
-
     batch_size = 100
     for i in range(0, len(text_chunks), batch_size):
         PineconeVectorStore.from_texts(
             text_chunks[i : i + batch_size], embedding=embeddings, index_name=PINECONE_INDEX_NAME
         )
-
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
-
     return "✅ Data successfully processed and stored."
 
 def query_chatbot(question, use_model_only=False):
     retries = 3
-    delay = 2  
+    delay = 2
     for attempt in range(retries):
         try:
             if use_model_only:
@@ -129,13 +122,11 @@ def query_chatbot(question, use_model_only=False):
                     stream=False,
                 )
                 return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
-
             relevant_docs = docsearch.max_marginal_relevance_search(
                 question, k=10, fetch_k=20, lambda_mult=0.5
             )
             if not relevant_docs:
                 return "❌ No relevant information found."
-
             retrieved_text = "\n".join(set(doc.page_content.strip() for doc in relevant_docs))
             response = client.chat.completions.create(
                 messages=[
@@ -149,7 +140,7 @@ def query_chatbot(question, use_model_only=False):
         except Exception as e:
             st.error(f"Error encountered during query attempt {attempt + 1}: {e}")
             time.sleep(delay)
-            delay *= 2  
+            delay *= 2
             if attempt == retries - 1:
                 return "⚠️ Sorry, I couldn't process your request. Please try again later."
 
@@ -164,24 +155,18 @@ def display_chat_messages():
 
 def main():
     st.title("🧠 Anu AI - Your Intelligent Assistant")
-
     with st.sidebar:
         st.header("⚙️ Configuration")
-
         if "selected_option" not in st.session_state:
             st.session_state.selected_option = "Model"
         if "current_source_name" not in st.session_state:
             st.session_state.current_source_name = "Model (No external knowledge)"
-
-        # ✅ Radio selection with session tracking
         selected_option = st.radio(
-            "Select knowledge base:", 
+            "Select knowledge base:",
             ("Model", "College Data", "Upload PDF", "Enter URL"),
             index=("Model", "College Data", "Upload PDF", "Enter URL").index(st.session_state.selected_option),
             key="selected_option"
         )
-
-        # ✅ Update knowledge source based on selection
         if selected_option == "Model":
             st.session_state.current_source_name = "Model (No external knowledge)"
         elif selected_option == "College Data":
@@ -190,10 +175,7 @@ def main():
             st.session_state.current_source_name = "Uploaded PDF (Pending Processing)"
         elif selected_option == "Enter URL":
             st.session_state.current_source_name = "Website URL (Pending Processing)"
-
         st.markdown(f"**📄 Current Knowledge Source:** `{st.session_state.current_source_name}`")
-
-        # ✅ Auto-processing on file upload
         pdf_file = st.file_uploader("Choose file", type=["pdf", "txt", "csv"]) if selected_option == "Upload PDF" else None
         if pdf_file:
             temp_path = f"temp_{pdf_file.name}"
@@ -201,31 +183,24 @@ def main():
                 f.write(pdf_file.getbuffer())
             with st.spinner("Processing..."):
                 st.success(store_embeddings(temp_path, pdf_file.name))
-                st.session_state.current_source_name = pdf_file.name  # Update source dynamically
-
+                st.session_state.current_source_name = pdf_file.name
         url = st.text_input("Enter website URL:") if selected_option == "Enter URL" else ""
         if url:
             with st.spinner("Processing URL..."):
                 st.success(store_embeddings(url, url))
-                st.session_state.current_source_name = url  # Update source dynamically
-
+                st.session_state.current_source_name = url
     st.subheader("Chat with Anu AI")
-
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
-
     if st.sidebar.button("🗑 Clear Chat"):
         st.session_state.chat_history = []
         st.success("Chat history cleared!")
-
     display_chat_messages()
-
     if prompt := st.chat_input("Ask a question... 🎤"):
         st.session_state.chat_history.append({"role": "user", "content": prompt, "avatar": "👤"})
         with st.spinner("🔍 Analyzing..."):
             response = query_chatbot(prompt, use_model_only=(selected_option == "Model"))
             st.session_state.chat_history.append({"role": "assistant", "content": response, "avatar": "🤖"})
-
     display_chat_messages()
 
 if __name__ == "__main__":
