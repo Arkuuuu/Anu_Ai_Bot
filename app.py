@@ -11,7 +11,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-import pinecone  # Ensure using the correct, lowercase import
+import pinecone  # Correct import for the official client
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -27,8 +27,8 @@ PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# ✅ Initialize Pinecone using the new v3 approach.
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# ✅ Initialize Pinecone using the v3 approach (use configure instead of init)
+pinecone.configure(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 pc = pinecone.Index(PINECONE_INDEX_NAME)
 
 # ✅ Ensure nltk dependency
