@@ -28,8 +28,8 @@ if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
 # ✅ Initialize Pinecone using the new v3 approach.
-pinecone_client = pinecone.PineconeClient(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-pc = pinecone_client.Index(PINECONE_INDEX_NAME)
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+pc = pinecone.Index(PINECONE_INDEX_NAME)
 
 # ✅ Ensure nltk dependency
 try:
