@@ -11,8 +11,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-# Import the official Pinecone client and ServerlessSpec from the "pinecone" package
-from pinecone import Pinecone, ServerlessSpec
+import pinecone  # This uses the pinecone-client package (v2.x)
 import asyncio
 
 # Ensure an event loop is available (for async environments)
@@ -24,32 +23,30 @@ except RuntimeError:
 # ---------------------------- Initialization ----------------------------
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
-# Load environment variables (from .env file or Streamlit secrets)
+# Load environment variables (from .env or Streamlit secrets)
 if os.path.exists('.env'):
     load_dotenv()
 PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
-# Choose an index name – you can use "chatbot-memory" or "college-data" as needed
 PINECONE_INDEX_NAME = "chatbot-memory"
-PINECONE_ENVIRONMENT = "us-east-1"  # Cloud region for ServerlessSpec
+PINECONE_ENVIRONMENT = "us-east-1"  # Specify your region
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# Initialize the Pinecone client using the official Pinecone class.
-pc = Pinecone(api_key=PINECONE_API_KEY)
+# Initialize the Pinecone client using the v2.x API
+pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
 
 # Check if the index exists; if not, create it.
-if PINECONE_INDEX_NAME not in pc.list_indexes().names():
-    pc.create_index(
+if PINECONE_INDEX_NAME not in pinecone.list_indexes():
+    pinecone.create_index(
         name=PINECONE_INDEX_NAME,
         dimension=384,  # Typically 384 for MiniLM embeddings
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region=PINECONE_ENVIRONMENT)
+        metric="cosine"
     )
 
-# Retrieve the index instance.
-index = pc.Index(PINECONE_INDEX_NAME)
+# Retrieve the index instance (this returns a pinecone.Index instance)
+index = pinecone.Index(PINECONE_INDEX_NAME)
 
 # Ensure nltk dependency is available.
 try:
@@ -61,17 +58,15 @@ except LookupError:
 client = Groq(api_key=GROQ_API_KEY)
 
 # ---------------------------- Helper Functions ----------------------------
-
 @st.cache_resource
 def load_embeddings():
-    # You can choose either source for embeddings; adjust if needed.
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    indexes = pc.list_indexes().names()
+    indexes = pinecone.list_indexes()
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
@@ -150,6 +145,7 @@ def query_chatbot(question, use_model_only=False):
                     stream=False,
                 )
                 return response.choices[0].message.content if response.choices else "⚠️ No response from AI."
+            
             relevant_docs = docsearch.max_marginal_relevance_search(
                 question, k=10, fetch_k=20, lambda_mult=0.5
             )
