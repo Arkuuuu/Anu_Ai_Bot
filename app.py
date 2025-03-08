@@ -11,7 +11,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-# Import the official Pinecone client and spec from the package "pinecone"
+# Import the official Pinecone client and ServerlessSpec from the "pinecone" package
 from pinecone import Pinecone, ServerlessSpec
 import asyncio
 
@@ -22,23 +22,22 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 # ---------------------------- Initialization ----------------------------
-
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
 
-# Load environment variables from .env or Streamlit secrets
+# Load environment variables (from .env file or Streamlit secrets)
 if os.path.exists('.env'):
     load_dotenv()
 PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+# Choose an index name – you can use "chatbot-memory" or "college-data" as needed
 PINECONE_INDEX_NAME = "chatbot-memory"
-# For ServerlessSpec, specify your cloud region (e.g., "us-east-1")
-PINECONE_ENVIRONMENT = "us-east-1"
+PINECONE_ENVIRONMENT = "us-east-1"  # Cloud region for ServerlessSpec
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
 # Initialize the Pinecone client using the official Pinecone class.
-pc = Pinecône(api_key=PINECONE_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY)
 
 # Check if the index exists; if not, create it.
 if PINECONE_INDEX_NAME not in pc.list_indexes().names():
@@ -65,6 +64,7 @@ client = Groq(api_key=GROQ_API_KEY)
 
 @st.cache_resource
 def load_embeddings():
+    # You can choose either source for embeddings; adjust if needed.
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 embeddings = load_embeddings()
@@ -104,7 +104,7 @@ def store_embeddings(input_path, source_name):
         st.session_state.processed_files = set()
     if source_name in st.session_state.processed_files:
         return "✅ This document is already processed."
-
+    
     text_data = ""
     if input_path.startswith("http"):
         if not is_valid_url(input_path):
@@ -117,12 +117,12 @@ def store_embeddings(input_path, source_name):
     else:
         documents = load_pdf(input_path)
         text_data = "\n".join([doc.page_content for doc in documents])
-
+    
     text_chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=20).split_text(text_data)
     st.write("Number of text chunks:", len(text_chunks))
     if not text_chunks:
         return "❌ Error: No text found in document."
-
+    
     batch_size = 100
     for i in range(0, len(text_chunks), batch_size):
         PineconeVectorStore.from_texts(
@@ -130,7 +130,7 @@ def store_embeddings(input_path, source_name):
             embedding=embeddings,
             index_name=PINECONE_INDEX_NAME
         )
-
+    
     st.session_state.processed_files.add(source_name)
     st.session_state.current_source_name = source_name
     return "✅ Data successfully processed and stored."
@@ -182,7 +182,6 @@ def display_chat_messages():
             )
 
 # ---------------------------- Streamlit UI ----------------------------
-
 def main():
     st.title("🧠 Anu AI - Your Intelligent Assistant")
     with st.sidebar:
