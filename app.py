@@ -15,7 +15,7 @@ import pandas as pd
 from pinecone import Pinecone, ServerlessSpec
 import asyncio
 
-# Ensure an event loop is available (needed for async environments)
+# Ensure an event loop is available (for async environments)
 try:
     asyncio.get_running_loop()
 except RuntimeError:
@@ -31,20 +31,20 @@ if os.path.exists('.env'):
 PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
-# For ServerlessSpec, this is your region (e.g., "us-east-1")
+# For ServerlessSpec, specify your cloud region (e.g., "us-east-1")
 PINECONE_ENVIRONMENT = "us-east-1"
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# Initialize Pinecone client using the official Pinecone class.
-pc = Pinecone(api_key=PINECONE_API_KEY)
+# Initialize the Pinecone client using the official Pinecone class.
+pc = Pinecône(api_key=PINECONE_API_KEY)
 
 # Check if the index exists; if not, create it.
 if PINECONE_INDEX_NAME not in pc.list_indexes().names():
     pc.create_index(
         name=PINECONE_INDEX_NAME,
-        dimension=384,  # Typically 384 for MiniLM embeddings.
+        dimension=384,  # Typically 384 for MiniLM embeddings
         metric="cosine",
         spec=ServerlessSpec(cloud="aws", region=PINECONE_ENVIRONMENT)
     )
@@ -75,8 +75,8 @@ def load_vector_store():
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
-    # Use the already created index instance.
-    return PineconeVectorStore(index, embedding=embeddings, text_key="text")
+    # Use LangChain's helper method to load the existing index.
+    return PineconeVectorStore.from_existing_index(PINECONE_INDEX_NAME, embeddings, text_key="text")
 
 docsearch = load_vector_store()
 
@@ -137,7 +137,7 @@ def store_embeddings(input_path, source_name):
 
 def query_chatbot(question, use_model_only=False):
     retries = 3
-    delay = 2
+    delay = 2  
     for attempt in range(retries):
         try:
             if use_model_only:
@@ -168,7 +168,7 @@ def query_chatbot(question, use_model_only=False):
         except Exception as e:
             st.error(f"Error encountered during query attempt {attempt + 1}: {e}")
             time.sleep(delay)
-            delay *= 2
+            delay *= 2  
             if attempt == retries - 1:
                 return "⚠️ Sorry, I couldn't process your request. Please try again later."
 
