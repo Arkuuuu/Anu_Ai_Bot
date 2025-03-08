@@ -11,7 +11,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-import pinecone  # Updated import
+import pinecone  # Ensure using the correct, lowercase import
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -27,9 +27,9 @@ PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# ✅ Initialize Pinecone using the new approach.
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-pc = pinecone.Index(PINECONE_INDEX_NAME)
+# ✅ Initialize Pinecone using the new v3 approach.
+pinecone_client = pinecone.Client(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+pc = pinecone_client.Index(PINECONE_INDEX_NAME)
 
 # ✅ Ensure nltk dependency
 try:
@@ -50,15 +50,13 @@ embeddings = load_embeddings()
 
 @st.cache_resource
 def load_vector_store():
-    # Retrieve the list of indexes using the new Pinecone client.
-    indexes = pc.list_indexes().names()
+    indexes = pinecone_client.list_indexes()
     st.write("Pinecone indexes available:", indexes)
     if PINECONE_INDEX_NAME not in indexes:
         raise ValueError(f"❌ ERROR: Pinecone index '{PINECONE_INDEX_NAME}' does not exist. Please create it first!")
-    # Get the index instance using the new API.
-    pinecone_index = pc.index(PINECONE_INDEX_NAME)
-    # Instantiate the vector store using the retrieved index.
-    return PineconeVectorStore(pinecone_index, embedding=embeddings, text_key="text")
+    # Use the already initialized index object 'pc'
+    return PineconeVectorStore(pc, embedding=embeddings, text_key="text")
+
 
 docsearch = load_vector_store()
 
