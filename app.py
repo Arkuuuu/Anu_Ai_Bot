@@ -11,7 +11,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-import pinecone  # This uses the pinecone-client package (v2.x)
+import pinecone  # Make sure you have pinecone-client==2.2.3 installed
 import asyncio
 
 # Ensure an event loop is available (for async environments)
@@ -34,18 +34,38 @@ PINECONE_ENVIRONMENT = "us-east-1"  # Specify your region
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# Initialize the Pinecone client using the v2.x API
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+# Initialize the Pinecone client using the v2.x API.
+try:
+    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+except Exception as e:
+    st.error(f"❌ Error initializing Pinecone: {e}")
+    raise
+
+# Try to list indexes with retry/error handling.
+indexes = []
+try:
+    indexes = pinecone.list_indexes()
+    st.write("Pinecone indexes available:", indexes)
+except Exception as e:
+    st.error(f"❌ Error listing Pinecone indexes: {e}")
+    # Optionally, you might retry or exit.
+    raise
 
 # Check if the index exists; if not, create it.
-if PINECONE_INDEX_NAME not in pinecone.list_indexes():
-    pinecone.create_index(
-        name=PINECONE_INDEX_NAME,
-        dimension=384,  # Typically 384 for MiniLM embeddings
-        metric="cosine"
-    )
+if PINECONE_INDEX_NAME not in indexes:
+    try:
+        pinecone.create_index(
+            name=PINECONE_INDEX_NAME,
+            dimension=384,  # Typically 384 for MiniLM embeddings.
+            metric="cosine"
+        )
+        # Wait a short time for the index to be ready.
+        time.sleep(5)
+    except Exception as e:
+        st.error(f"❌ Error creating index: {e}")
+        raise
 
-# Retrieve the index instance (this returns a pinecone.Index instance)
+# Retrieve the index instance (this returns an instance of pinecone.Index)
 index = pinecone.Index(PINECONE_INDEX_NAME)
 
 # Ensure nltk dependency is available.
