@@ -11,7 +11,8 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 from groq import Groq
 import pandas as pd
-import pinecone  # Correct import for the official client
+# Use the official import for Pinecone
+from pinecone import Pinecone, ServerlessSpec
 
 # ✅ Streamlit page config
 st.set_page_config(page_title="Anu AI", page_icon="🧠")
@@ -22,14 +23,21 @@ if os.path.exists('.env'):
 PINECONE_API_KEY = st.secrets.get("PINECONE_API_KEY") or os.getenv("PINECONE_API_KEY")
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 PINECONE_INDEX_NAME = "chatbot-memory"
-PINECONE_ENVIRONMENT = "us-east-1"  # Ensure correct region
+PINECONE_ENVIRONMENT = "us-east-1"  # This will be used as the region for ServerlessSpec
 
 if not PINECONE_API_KEY or not GROQ_API_KEY:
     raise ValueError("❌ ERROR: Missing API keys. Check your secrets or .env file!")
 
-# ✅ Initialize Pinecone using the v3 approach (use configure instead of init)
-pinecone.configure(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-pc = pinecone.Index(PINECONE_INDEX_NAME)
+# ✅ Initialize Pinecone client using your friend's approach.
+pc = Pinecone(api_key=PINECONE_API_KEY)
+if PINECONE_INDEX_NAME not in pc.list_indexes().names():
+    pc.create_index(
+        name=PINECONE_INDEX_NAME,
+        dimension=384,  # Typically 384 for MiniLM
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region=PINECONE_ENVIRONMENT)
+    )
+index = pc.Index(PINECONE_INDEX_NAME)
 
 # ✅ Ensure nltk dependency
 try:
@@ -39,6 +47,7 @@ except LookupError:
 
 # ✅ Initialize Groq client
 client = Groq(api_key=GROQ_API_KEY)
+
 
 # ---------------------------- Helper Functions ----------------------------
 
